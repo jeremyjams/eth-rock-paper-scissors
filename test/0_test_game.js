@@ -140,27 +140,25 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
 
             // check balance before reward
-            const alicePastRewards = await casino.rewards(alice);
-            assert.strictEqual(alicePastRewards.toString(10), '0', "Alice should not have any reward");
-            const bobPastRewards = await casino.rewards(bob);
-            assert.strictEqual(bobPastRewards.toString(10), '0', "Bob should not have any reward");
+            const alicePastBalances = await casino.balances(alice);
+            assert.strictEqual(alicePastBalances.toString(10), '0', "Alice should not have any balance");
+            const bobPastBalances = await casino.balances(bob);
+            assert.strictEqual(bobPastBalances.toString(10), '0', "Bob should not have any balance");
             let reward = gamePrice.mul(toBN(2))
             //reveal & reward
             const rewardWinnerReceipt = await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
             truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: reward, unlockedAttackerDeposit: attackerDeposit });
             //check reward
-            const aliceRewards = await casino.rewards(alice);
-            assert.strictEqual(aliceRewards.toString(10), '0', "Alice should not have any reward");
-            const bobRewards = await casino.rewards(bob);
-            assert.strictEqual(bobRewards.toString(10), '20', "Bob reward should be 20");
+            const aliceBalances = await casino.balances(alice);
+            assert.strictEqual(aliceBalances.toString(10), '10', "Alice balance should be 10 (unlock amount)");
+            const bobBalances = await casino.balances(bob);
+            assert.strictEqual(bobBalances.toString(10), '20', "Bob balance should be 20 (game price * 2)");
             //check game status
             const game = await casino.games(gameId);
             assert.strictEqual(game.isClosed, true, "Game should be closed");
             //check lock & unlock
             const aliceLockedDeposit = await casino.locked(alice);
             assert.strictEqual(aliceLockedDeposit.toString(10), '0', "lockedAttackerDeposit for Alice should be 0");
-            const aliceUnlockedDeposit = await casino.unlocked(alice);
-            assert.strictEqual(aliceUnlockedDeposit.toString(10), '10', "unlockedAttackerDeposit for Alice should be 10");
         });
 
         it("should not unlock & reward twice", async () => {
@@ -192,7 +190,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
             //try to reveal with wrong move
             await truffleAssert.reverts(
-                casino.revealAttackAndReward(gameId, ROCK, soliditySha3("b4dp4sswr0rd"), {from: alice}),
+                casino.revealAttackAndReward(gameId, ROCK, soliditySha3("b4dp4ssw0rd"), {from: alice}),
                 "Failed to decrypt attacker move with attacker secret"
             );
         });
@@ -246,7 +244,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     });
 
     describe("Withdraw", () => {
-        it("should withdraw reward", async () => {
+        it("should withdraw balance", async () => {
             //attack, defend & reward
             await casino.attack(gameId, {from: alice, value: attackerDeposit.add(gamePrice)});
             await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
@@ -254,21 +252,21 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
             const balanceBefore = await web3.eth.getBalance(bob);
             // withdraw
-            const receipt = await casino.withdrawReward({from: bob});
-            truffleAssert.eventEmitted(receipt, 'WithdrawRewardEvent', { player: bob, reward: toBN(20) });
+            const receipt = await casino.withdrawBalance({from: bob});
+            truffleAssert.eventEmitted(receipt, 'WithdrawBalanceEvent', { player: bob, reward: toBN(20) });
 
             // check effective withdraw amount
-            const withdrawRewardGasUsed = receipt.receipt.gasUsed;
+            const withdrawBalanceGasUsed = receipt.receipt.gasUsed;
             const tx = await web3.eth.getTransaction(receipt.tx);
-            const withdrawRewardGasPrice = tx.gasPrice;
-            const withdrawRewardCost = toBN(withdrawRewardGasUsed).mul(toBN(withdrawRewardGasPrice));
+            const withdrawBalanceGasPrice = tx.gasPrice;
+            const withdrawBalanceCost = toBN(withdrawBalanceGasUsed).mul(toBN(withdrawBalanceGasPrice));
             const balanceAfter = await web3.eth.getBalance(bob);
-            const effectiveWithdrawReward = toBN(balanceAfter).sub(toBN(balanceBefore))
-                 .add(toBN(withdrawRewardCost)).toString(10);
-            assert.strictEqual(effectiveWithdrawReward.toString(10), '20');
+            const effectiveWithdrawBalance = toBN(balanceAfter).sub(toBN(balanceBefore))
+                 .add(toBN(withdrawBalanceCost)).toString(10);
+            assert.strictEqual(effectiveWithdrawBalance.toString(10), '20');
         });
 
-        it("should not withdraw reward since no reward", async () => {
+        it("should not withdraw balance since empty balance", async () => {
             //attack, defend & reward
             await casino.attack(gameId, {from: alice, value: attackerDeposit.add(gamePrice)});
             await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
@@ -276,8 +274,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
             // withdraw
             await truffleAssert.reverts(
-                casino.withdrawReward({from: alice}),
-                "No reward to withdraw"
+                casino.withdrawBalance({from: david}),
+                "Cannot withdraw empty balance"
             );
         });
     });
