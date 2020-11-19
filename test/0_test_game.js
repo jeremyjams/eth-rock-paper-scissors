@@ -58,8 +58,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, lockedAttackerDeposit: attackerDeposit });
             const game = await casino.games(gameId);
             assert.strictEqual(game.attacker.toString(10), alice, "Attacker should be Alice");
-            const aliceLockedDeposit = await casino.locked(alice);
-            assert.strictEqual(aliceLockedDeposit.toString(10), '10', "lockedAttackerDeposit for Alice should be 10");
         });
 
         it("should not attack since empty secretMoveHash", async () => {
@@ -156,17 +154,14 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //check game status
             const game = await casino.games(gameId);
             assert.strictEqual(game.isClosed, true, "Game should be closed");
-            //check lock & unlock
-            const aliceLockedDeposit = await casino.locked(alice);
-            assert.strictEqual(aliceLockedDeposit.toString(10), '0', "lockedAttackerDeposit for Alice should be 0");
         });
 
-        it("should not unlock & reward twice", async () => {
+        it("should not reward twice", async () => {
             //attack & defend & reveal & reward
             await casino.attack(gameId, {from: alice, value: attackerDeposit.add(gamePrice)});
             await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
             await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
-            //try to unlock or reward twice
+            //try to reward twice
             await truffleAssert.reverts(
                 casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice}),
                 "Game is closed (please start new game instead)"

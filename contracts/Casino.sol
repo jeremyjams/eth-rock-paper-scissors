@@ -12,14 +12,13 @@ import "./Pausable.sol";
 contract Casino is Pausable {
 
     using SafeMath for uint;
+    uint public constant REVEAL_PERIOD = 5 minutes;
     uint public attackerDeposit;
     uint public gamePrice;
     mapping(uint => Move) public predators;
 
     // gameId -> Game
     mapping(bytes32 => Game) public games;
-    // playerAddress -> lock
-    mapping(address => uint) public locked;
     // playerAddress -> balances
     mapping(address => uint) public balances;
 
@@ -27,15 +26,26 @@ contract Casino is Pausable {
         address attacker;
         address defender;
         Move defenderMove;
+        uint revealTimeoutDate;
         bool isClosed;
     }
 
     enum Move {ROCK, PAPER, SCISSORS}
 
     event AttackEvent(bytes32 indexed gameId, address indexed player, uint lockedAttackerDeposit);
-    event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move);
+    event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint revealTimeoutDate);
+
+    event CanceledGameEvent(bytes32 indexed gameId, uint refund);
+    event RewardDefenderSinceAttackerRunawayEvent(bytes32 indexed gameId, uint reward);
     event RewardWinnerEvent(bytes32 indexed gameId, address indexed winner, uint reward, uint unlockedAttackerDeposit);
-    event WithdrawBalanceEvent(address indexed player, uint reward);
+
+
+    event RefundEvent(bytes32 indexed gameId, address indexed player, uint refund);
+
+    event IncreaseBalanceEvent(address indexed player, uint amount);
+    event WithdrawBalanceEvent(address indexed player, uint reward); //todo rename amount
+
+    event ClosedGameEvent2(bytes32 indexed gameId);
 
     constructor(bool isPaused, uint _gamePrice) public Pausable(isPaused) {
         gamePrice = _gamePrice;
@@ -82,13 +92,13 @@ contract Casino is Pausable {
         //TODO: Check value in balance too
 
         game.attacker = msg.sender;
-        locked[msg.sender] = locked[msg.sender].add(gamePrice);
         emit AttackEvent(attackerSecretMoveHash, msg.sender, attackerDeposit);
         return true;
     }
 
     function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
+        require(!game.isClosed, "Game is closed (please start new game instead)");
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
         require(msg.sender != game.attacker, "Attacker and defender should be different");
         require(msg.value == gamePrice, "Value should equal game price");
@@ -96,15 +106,17 @@ contract Casino is Pausable {
 
         game.defender = msg.sender;
         game.defenderMove = defenderMove;
-        emit DefenseEvent(gameId, msg.sender, defenderMove);
+        uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
+        game.revealTimeoutDate = revealTimeoutDate;
+        emit DefenseEvent(gameId, msg.sender, defenderMove, revealTimeoutDate);
         return true;
     }
 
+    //TODO: Split?
     function revealAttackAndReward(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool success)  {
         Game storage game = games[gameId];
         require(!game.isClosed, "Game is closed (please start new game instead)");
-        address attacker = msg.sender; //easier to read
-        require(buildSecretMoveHashAsGameId(attacker, attackerMove, attackerSecret) == gameId, "Failed to decrypt attacker move with attacker secret");
+        require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Failed to decrypt attacker move with attacker secret");
 
         address defender = game.defender;
         Move defenderMove = game.defenderMove;
@@ -112,24 +124,54 @@ contract Casino is Pausable {
         address winner;
 
         if (attackerMove == predators[uint(defenderMove)]) {
-            winner = attacker;
-            balances[attacker] = reward.add(attackerDeposit);
+            winner = msg.sender;
+            increaseBalance(msg.sender, reward.add(attackerDeposit)); // refund deposit too
         } else if (defenderMove == predators[uint(attackerMove)]) {
             winner = defender;
-            balances[attacker] = attackerDeposit;
-            balances[defender] = reward;
+            increaseBalance(defender, reward);
+            increaseBalance(msg.sender, attackerDeposit);
         } else { //not sure could happen, at least avoids dead lock for attacker
-            winner = this.owner();
-            balances[winner] = reward;
-            balances[attacker] = attackerDeposit;
+            winner = address(0);
+            //refund
+            increaseBalance(defender, gamePrice);
+            increaseBalance(msg.sender, gamePrice.add(attackerDeposit));
         }
+
         game.isClosed = true;
-        locked[attacker] = locked[attacker].sub(attackerDeposit);
-        emit RewardWinnerEvent(gameId, winner, reward, attackerDeposit);
+        emit RewardWinnerEvent(gameId, winner, reward, attackerDeposit); //TODO update
         return true;
     }
 
-    //TODO: Add reveal timeout so defender can claim reward after that
+    function rewardDefenderSinceAttackerRunaway(bytes32 gameId) public whenNotPaused returns (bool)  { // could be trigger by anyone
+        Game storage game = games[gameId];
+        require(!game.isClosed, "Game is closed");
+        require(now > game.revealTimeoutDate, "Should wait reveal period for rewarding defender");
+
+        address defender = game.defender;
+        uint reward = gamePrice.mul(2).add(attackerDeposit);
+        increaseBalance(defender, reward); //defender takes all (reward + security deposit)
+        game.isClosed = true;
+        emit RewardDefenderSinceAttackerRunawayEvent(gameId, reward);
+        return true;
+    }
+
+    function cancelGame(bytes32 gameId) public whenNotPaused returns (bool)  {
+        Game storage game = games[gameId];
+        require(!game.isClosed, "Game is closed");
+        require(msg.sender == game.attacker, "Only attacker can cancel attack");
+        require(game.defender == address(0), "Defender already player (please reveal instead)");
+        uint refund = gamePrice.add(attackerDeposit);
+        increaseBalance(msg.sender, refund);
+        game.isClosed = true;
+        // TODO: eventually free up more space for game
+        emit CanceledGameEvent(gameId, refund);
+        return true;
+    }
+
+    function increaseBalance(address player, uint amount) private {
+        balances[player] = balances[player].add(amount);
+        emit IncreaseBalanceEvent(player, amount);
+    }
 
     function withdrawBalance() public whenNotPaused returns (bool success)  {
         require(balances[msg.sender] > 0, "Cannot withdraw empty balance");
