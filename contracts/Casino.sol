@@ -13,9 +13,8 @@ contract Casino is Pausable {
 
     using SafeMath for uint;
     uint public constant REVEAL_PERIOD = 5 minutes;
-    uint public attackerDeposit;
-    uint public gamePrice;
     mapping(uint => Move) public predators;
+    uint public depositPercentage;
 
     // gameId -> Game
     mapping(bytes32 => Game) public games;
@@ -23,6 +22,8 @@ contract Casino is Pausable {
     mapping(address => uint) public balances;
 
     struct Game {
+        uint gamePrice;
+        uint attackerDeposit;
         address attacker;
         address defender;
         Move defenderMove;
@@ -32,24 +33,20 @@ contract Casino is Pausable {
 
     enum Move {ROCK, PAPER, SCISSORS}
 
+    //playing
     event AttackEvent(bytes32 indexed gameId, address indexed player, uint lockedAttackerDeposit);
     event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint revealTimeoutDate);
-
+    //end game
     event CanceledGameEvent(bytes32 indexed gameId, uint refund);
     event RewardDefenderSinceAttackerRunawayEvent(bytes32 indexed gameId, uint reward);
     event RewardWinnerEvent(bytes32 indexed gameId, address indexed winner, uint reward, uint unlockedAttackerDeposit);
-
-
-    event RefundEvent(bytes32 indexed gameId, address indexed player, uint refund);
-
-    event IncreaseBalanceEvent(address indexed player, uint amount);
+    //balance
+    event IncreasedBalanceEvent(address indexed player, uint amount);
     event WithdrawBalanceEvent(address indexed player, uint reward); //todo rename amount
 
-    event ClosedGameEvent2(bytes32 indexed gameId);
-
-    constructor(bool isPaused, uint _gamePrice) public Pausable(isPaused) {
-        gamePrice = _gamePrice;
-        attackerDeposit = gamePrice; //use percentage?
+    constructor(bool isPaused, uint _depositPercentage) public Pausable(isPaused) {
+        require(_depositPercentage <= 100, "Deposit percentage should be between 0 and 100");
+        depositPercentage = _depositPercentage;
 
         predators[uint(Move.ROCK)] = Move.PAPER;
         predators[uint(Move.PAPER)] = Move.SCISSORS;
@@ -88,11 +85,14 @@ contract Casino is Pausable {
         require(attackerSecretMoveHash != bytes32(0), "Provided attackerSecretMoveHash cannot be empty");
         Game storage game = games[attackerSecretMoveHash]; // attackerSecretMoveHash is gameId
         require(game.attacker == address(0), "Attacker already played (please defend or start new game instead)");
-        require(msg.value == attackerDeposit.add(gamePrice), "Value should equal attacker deposit + game price");
+
+        uint attackerDeposit = msg.value.mul(depositPercentage).div(100);
+        game.gamePrice = msg.value.sub(attackerDeposit);
+        game.attackerDeposit = attackerDeposit;
         //TODO: Check value in balance too
 
         game.attacker = msg.sender;
-        emit AttackEvent(attackerSecretMoveHash, msg.sender, attackerDeposit);
+        emit AttackEvent(attackerSecretMoveHash, msg.sender, attackerDeposit); //TODO Add gameprice
         return true;
     }
 
@@ -101,7 +101,7 @@ contract Casino is Pausable {
         require(!game.isClosed, "Game is closed (please start new game instead)");
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
         require(msg.sender != game.attacker, "Attacker and defender should be different");
-        require(msg.value == gamePrice, "Value should equal game price");
+        require(msg.value == game.gamePrice, "Value should equal game price");
         //TODO: Check value in balance too
 
         game.defender = msg.sender;
@@ -120,6 +120,8 @@ contract Casino is Pausable {
 
         address defender = game.defender;
         Move defenderMove = game.defenderMove;
+        uint gamePrice = game.gamePrice;
+        uint attackerDeposit = game.attackerDeposit;
         uint reward = gamePrice.mul(2);
         address winner;
 
@@ -148,7 +150,7 @@ contract Casino is Pausable {
         require(now > game.revealTimeoutDate, "Should wait reveal period for rewarding defender");
 
         address defender = game.defender;
-        uint reward = gamePrice.mul(2).add(attackerDeposit);
+        uint reward = game.gamePrice.mul(2).add(game.attackerDeposit);
         increaseBalance(defender, reward); //defender takes all (reward + security deposit)
         game.isClosed = true;
         emit RewardDefenderSinceAttackerRunawayEvent(gameId, reward);
@@ -160,7 +162,7 @@ contract Casino is Pausable {
         require(!game.isClosed, "Game is closed");
         require(msg.sender == game.attacker, "Only attacker can cancel attack");
         require(game.defender == address(0), "Defender already player (please reveal instead)");
-        uint refund = gamePrice.add(attackerDeposit);
+        uint refund = game.gamePrice.add(game.attackerDeposit);
         increaseBalance(msg.sender, refund);
         game.isClosed = true;
         // TODO: eventually free up more space for game
@@ -170,7 +172,7 @@ contract Casino is Pausable {
 
     function increaseBalance(address player, uint amount) private {
         balances[player] = balances[player].add(amount);
-        emit IncreaseBalanceEvent(player, amount);
+        emit IncreasedBalanceEvent(player, amount);
     }
 
     function withdrawBalance() public whenNotPaused returns (bool success)  {
