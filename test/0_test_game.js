@@ -60,7 +60,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Attack", () => {
         it("should attack", async () => {
             const attackReceipt = await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, lockedAttackerDeposit: attackerDeposit });
+            truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, gamePrice: gamePrice, lockedAttackerDeposit: attackerDeposit });
             const game = await casino.games(gameId);
             assert.strictEqual(game.attacker.toString(10), alice, "Attacker should be Alice");
         });
@@ -248,7 +248,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             // withdraw
             const receipt = await casino.withdrawBalance({from: bob});
             let expectedWithdrawal = gamePrice.mul(toBN(2));
-            truffleAssert.eventEmitted(receipt, 'WithdrawBalanceEvent', { player: bob, reward: expectedWithdrawal });
+            truffleAssert.eventEmitted(receipt, 'WithdrawBalanceEvent', { player: bob, amount: expectedWithdrawal });
 
             // check effective withdraw amount
             const withdrawBalanceGasUsed = receipt.receipt.gasUsed;
