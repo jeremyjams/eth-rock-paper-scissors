@@ -35,7 +35,9 @@ contract Casino is Pausable {
         uint attackerDeposit;
         address defender;
         Move defenderMove;
-        uint revealTimeoutDate; // a revealTimeoutDate=1 value means game is already rewarded and closed
+        // An already rewarded and closed game has a revealTimeoutDate of ONE
+        // (not using price since could possibly be initially set to ZERO)
+        uint revealTimeoutDate;
     }
 
     enum Move {ROCK, PAPER, SCISSORS}
@@ -175,7 +177,7 @@ contract Casino is Pausable {
     function cancelGame(bytes32 gameId) public whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(msg.sender == game.attacker, "Only attacker can cancel attack");
-        require(game.defender == address(0), "Defender already player (please reveal instead)"); // avoids reentrancy
+        require(game.defender == address(0), "Defender already player (please reveal instead)");
         require(game.revealTimeoutDate != 1, "Game is closed (please start new game instead)");
 
         game.revealTimeoutDate = 1; // game closed now
