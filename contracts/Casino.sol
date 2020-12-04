@@ -86,26 +86,13 @@ contract Casino is Pausable {
     * (defender has almost nothing to loose but only tx gas price for playing)
     */
     function attack(bytes32 attackerSecretMoveHash) public payable whenNotPaused returns (bool)  {
-        return attackWithValueOrBalance(attackerSecretMoveHash, 0);
-    }
-
-    //TODO?: Add explicit method attackWithBalance() public
-
-    function attackWithValueOrBalance(bytes32 attackerSecretMoveHash, uint useBalanceToEnroll) public payable whenNotPaused returns (bool)  {
         require(attackerSecretMoveHash != bytes32(0), "Provided attackerSecretMoveHash cannot be empty");
         // attackerSecretMoveHash is gameId
         Game storage game = games[attackerSecretMoveHash];
         require(game.attacker == address(0), "Attacker already played (please defend or start new game instead)");
 
-        uint enrollValue;
-        if (useBalanceToEnroll > 0) {
-            decreaseBalance(msg.sender, useBalanceToEnroll);
-            enrollValue = useBalanceToEnroll;
-        } else {
-            enrollValue = msg.value;
-        }
-        uint attackerDeposit = enrollValue.mul(depositPercentage).div(100);
-        uint gamePrice = enrollValue.sub(attackerDeposit);
+        uint attackerDeposit = msg.value.mul(depositPercentage).div(100);
+        uint gamePrice = msg.value.sub(attackerDeposit);
         game.gamePrice = gamePrice;
         game.attackerDeposit = attackerDeposit;
         game.attacker = msg.sender;
@@ -114,20 +101,11 @@ contract Casino is Pausable {
     }
 
     function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
-        return defendWithValueOrBalance(gameId, defenderMove, false);
-    }
-
-    function defendWithValueOrBalance(bytes32 gameId, Move defenderMove, bool useBalanceToEnroll) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(!game.isClosed, "Game is closed (please start new game instead)");
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
         require(msg.sender != game.attacker, "Attacker and defender should be different");
-
-        if (useBalanceToEnroll) {
-            decreaseBalance(msg.sender, game.gamePrice);
-        } else {
-            require(msg.value == game.gamePrice, "Value should equal game price");
-        }
+        require(msg.value == game.gamePrice, "Value should equal game price");
 
         game.defender = msg.sender;
         game.defenderMove = defenderMove;
@@ -212,12 +190,5 @@ contract Casino is Pausable {
         balances[player] = balances[player].add(amount);
         emit IncreasedBalanceEvent(player, amount);
     }
-
-    function decreaseBalance(address player, uint amount) private {
-        uint balance = balances[msg.sender];
-        require(amount <= balance, "Balance too low");
-        balances[player] = balance.sub(amount);
-        emit WithdrawBalanceEvent(player, amount);
-    }
-
+    
 }
