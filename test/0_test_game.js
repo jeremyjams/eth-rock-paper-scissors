@@ -150,9 +150,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             assert.strictEqual(aliceBalances.toString(10), attackerDeposit.toString(10), "Alice balance should have unlocked deposit");
             const bobBalances = await casino.balances(bob);
             assert.strictEqual(bobBalances.toString(10), gamePrice.mul(toBN(2)).toString(10), "Bob balance should equal game price * 2");
-            //check game status
-            const game = await casino.games(gameId);
-            assert.strictEqual(game.isClosed, true, "Game should be closed");
         });
 
         it("should not reward twice", async () => {
