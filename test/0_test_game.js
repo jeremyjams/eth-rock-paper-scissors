@@ -61,8 +61,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         it("should attack", async () => {
             const attackReceipt = await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
             truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, gamePrice: gamePrice, lockedAttackerDeposit: attackerDeposit });
-            const game = await casino.games(gameId);
-            assert.strictEqual(game.attacker.toString(10), alice, "Attacker should be Alice");
         });
 
         it("should not attack since empty secretMoveHash", async () => {
@@ -105,16 +103,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             await truffleAssert.reverts(
                 casino.defend(gameId, PAPER, {from: bob, value: gamePrice}),
                 "Defender already played (please reveal attacker move or start new game instead)"
-            );
-        });
-
-        it("should not defend since defender and attacker cannot be the same person", async () => {
-            //attack
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            //defend with same identity
-            await truffleAssert.reverts(
-                casino.defend(gameId, PAPER, {from: alice, value: gamePrice}),
-                "Attacker and defender should be different"
             );
         });
 

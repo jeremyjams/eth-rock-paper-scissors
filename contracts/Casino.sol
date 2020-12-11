@@ -30,21 +30,27 @@ contract Casino is Pausable {
     mapping(address => uint) public balances;
 
     struct Game {
-        address attacker; // an empty attacker means a fresh game could be started
         uint gamePrice;
         uint attackerDeposit;
         address defender;
         Move defenderMove;
-        // An already rewarded and closed game has a revealTimeoutDate of ONE
+        // Ensures game flow and non reentrancy (removed attacker field for saving gas)
         // (not using price since could possibly be initially set to ZERO)
-        uint revealTimeoutDate;
+        uint state;
     }
 
     enum Move {ROCK, PAPER, SCISSORS}
 
+    enum State {
+        UNDEFINED,  //value:    0
+        ATTACKED,   //value:    1
+        //DEFENDED,   value:    reveal timeout timestamp
+        CLOSED      //value:    2
+    }
+
     //playing
     event AttackEvent(bytes32 indexed gameId, address indexed player, uint gamePrice, uint lockedAttackerDeposit);
-    event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint revealTimeoutDate);
+    event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint state);
     //end game
     event CanceledGameEvent(bytes32 indexed gameId, uint refund);
     event RewardDefenderSinceAttackerRunawayEvent(bytes32 indexed gameId, uint reward);
@@ -98,9 +104,9 @@ contract Casino is Pausable {
         require(attackerSecretMoveHash != bytes32(0), "Provided attackerSecretMoveHash cannot be empty");
         // attackerSecretMoveHash is gameId
         Game storage game = games[attackerSecretMoveHash];
-        require(game.attacker == address(0), "Attacker already played (please defend or start new game instead)");
+        require(game.state == uint(State.UNDEFINED), "Attacker already played (please defend or start new game instead)");
 
-        game.attacker = msg.sender;
+        game.state = uint(State.ATTACKED);
         uint attackerDeposit = msg.value.mul(depositPercentage).div(100);
         uint gamePrice = msg.value.sub(attackerDeposit);
         game.gamePrice = gamePrice;
@@ -112,26 +118,24 @@ contract Casino is Pausable {
     function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
-        require(msg.sender != game.attacker, "Attacker and defender should be different");
         require(msg.value == game.gamePrice, "Value should equal game price");
 
         game.defender = msg.sender;
         game.defenderMove = defenderMove;
-        uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
-        game.revealTimeoutDate = revealTimeoutDate;
-        emit DefenseEvent(gameId, msg.sender, defenderMove, revealTimeoutDate);
+        uint state = now.add(REVEAL_PERIOD.mul(1 minutes));
+        game.state = state;
+        emit DefenseEvent(gameId, msg.sender, defenderMove, state);
         return true;
     }
 
-    //TODO?: Split
     function revealAttackAndReward(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool success)  {
         Game storage game = games[gameId];
         address defender = game.defender;
         require(defender != address(0), "Defender should have played");
         require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Failed to decrypt attacker move with attacker secret");
-        require(game.revealTimeoutDate != 1, "Game is closed (please start new game instead)");
+        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
 
-        game.revealTimeoutDate = 1; // game closed now
+        game.state = uint(State.CLOSED); // game closed now
         uint gamePrice = game.gamePrice;
         uint attackerDeposit = game.attackerDeposit;
         uint reward = gamePrice.mul(2);
@@ -162,11 +166,11 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         address defender = game.defender;
         require(defender != address(0), "Defender should have played");
-        uint revealTimeoutDate = game.revealTimeoutDate;
-        require(now > revealTimeoutDate, "Should wait reveal period for rewarding defender");
-        require(game.revealTimeoutDate != 1, "Game is closed (please start new game instead)");
+        uint state = game.state;
+        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
+        require(now > state, "Should wait reveal period for rewarding defender");
 
-        game.revealTimeoutDate = 1; // game closed now
+        game.state = uint(State.CLOSED); // game closed now
         //defender takes all (reward + security deposit)
         uint reward = game.gamePrice.mul(2).add(game.attackerDeposit);
         increaseBalance(defender, reward);
@@ -174,13 +178,13 @@ contract Casino is Pausable {
         return true;
     }
 
-    function cancelGame(bytes32 gameId) public whenNotPaused returns (bool)  {
+    function cancelGame(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
-        require(msg.sender == game.attacker, "Only attacker can cancel attack");
+        require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Only attacker can cancel attack");
         require(game.defender == address(0), "Defender already player (please reveal instead)");
-        require(game.revealTimeoutDate != 1, "Game is closed (please start new game instead)");
+        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
 
-        game.revealTimeoutDate = 1; // game closed now
+        game.state = uint(State.CLOSED); // game closed now
         uint refund = game.gamePrice.add(game.attackerDeposit);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(gameId, refund);
