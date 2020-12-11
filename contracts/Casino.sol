@@ -65,8 +65,7 @@ contract Casino is Pausable {
     event WithdrawBalanceEvent(address indexed player, uint amount);
 
     constructor(bool isPaused, uint _depositPercentage) public Pausable(isPaused) {
-        require(_depositPercentage <= 100, "Deposit percentage should be between 0 and 100");
-        depositPercentage = _depositPercentage;
+        setDepositPercentage(_depositPercentage);
 
         predators[uint(Move.ROCK)] = Move.PAPER;
         predators[uint(Move.PAPER)] = Move.SCISSORS;
@@ -95,6 +94,11 @@ contract Casino is Pausable {
                 uint(move),
                 secret
             ));
+    }
+
+    function setDepositPercentage(uint _depositPercentage) public onlyOwner {
+        require(_depositPercentage <= 100, "Deposit percentage should be between 0 and 100");
+        depositPercentage = _depositPercentage;
     }
 
     /*
@@ -128,9 +132,9 @@ contract Casino is Pausable {
 
         game.defender = msg.sender;
         game.defenderMove = defenderMove;
-        uint state = now.add(REVEAL_PERIOD.mul(1 minutes));
-        game.state = state;
-        emit DefenseEvent(gameId, msg.sender, defenderMove, state);
+        uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
+        game.state = revealTimeoutDate;
+        emit DefenseEvent(gameId, msg.sender, defenderMove, revealTimeoutDate);
         return true;
     }
 
