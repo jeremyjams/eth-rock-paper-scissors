@@ -11,8 +11,8 @@ import "./Pausable.sol";
 *
 * With Attacker is Alice and Defender is Bob, standard game flow is:
 *
-* 1 - attack(attackerSecretMoveHash, {from: alice, value: gamePrice.add(attackerDeposit)});
-* 2 - defend(gameId, PAPER, {from: bob, value: gamePrice});
+* 1 - attack(attackerSecretMoveHash, {from: alice, value: price.add(attackerDeposit)});
+* 2 - defend(gameId, PAPER, {from: bob, value: price});
 * 3 - revealAttackAndReward(gameId, ROCK, secret, {from: alice});
 * 4 - withdrawBalance({from: bob});
 *
@@ -30,7 +30,7 @@ contract Casino is Pausable {
     mapping(address => uint) public balances;
 
     struct Game {
-        uint gamePrice;
+        uint price;
         uint attackerDeposit;
         address defender;
         Move defenderMove;
@@ -39,7 +39,12 @@ contract Casino is Pausable {
         uint state;
     }
 
-    enum Move {ROCK, PAPER, SCISSORS}
+    enum Move {
+        UNDEFINED,
+        ROCK,
+        PAPER,
+        SCISSORS
+    }
 
     enum State {
         UNDEFINED,  //value:    0
@@ -49,7 +54,7 @@ contract Casino is Pausable {
     }
 
     //playing
-    event AttackEvent(bytes32 indexed gameId, address indexed player, uint gamePrice, uint lockedAttackerDeposit);
+    event AttackEvent(bytes32 indexed gameId, address indexed player, uint price, uint lockedAttackerDeposit);
     event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint state);
     //end game
     event CanceledGameEvent(bytes32 indexed gameId, uint refund);
@@ -92,7 +97,7 @@ contract Casino is Pausable {
     }
 
     /*
-    * The attacker (1) pays a price <gamePrice> for playing (so does defender),
+    * The attacker (1) pays a price <price> for playing (so does defender),
     * but also (2) temporarily locks an amount <attackerDeposit> to force
     * him to stay until the end of the game (in case he's a sore loser)
     *
@@ -108,17 +113,17 @@ contract Casino is Pausable {
 
         game.state = uint(State.ATTACKED);
         uint attackerDeposit = msg.value.mul(depositPercentage).div(100);
-        uint gamePrice = msg.value.sub(attackerDeposit);
-        game.gamePrice = gamePrice;
+        uint price = msg.value.sub(attackerDeposit);
+        game.price = price;
         game.attackerDeposit = attackerDeposit;
-        emit AttackEvent(attackerSecretMoveHash, msg.sender, gamePrice, attackerDeposit);
+        emit AttackEvent(attackerSecretMoveHash, msg.sender, price, attackerDeposit);
         return true;
     }
 
     function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
-        require(msg.value == game.gamePrice, "Value should equal game price");
+        require(msg.value == game.price, "Value should equal game price");
 
         game.defender = msg.sender;
         game.defenderMove = defenderMove;
@@ -136,9 +141,9 @@ contract Casino is Pausable {
         require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
 
         game.state = uint(State.CLOSED); // game closed now
-        uint gamePrice = game.gamePrice;
+        uint price = game.price;
         uint attackerDeposit = game.attackerDeposit;
-        uint reward = gamePrice.mul(2);
+        uint reward = price.mul(2);
         address winner;
         Move defenderMove = game.defenderMove;
 
@@ -153,8 +158,8 @@ contract Casino is Pausable {
         } else {//not sure could happen, at least avoids dead lock for attacker
             winner = address(0);
             //refund
-            increaseBalance(defender, gamePrice);
-            increaseBalance(msg.sender, gamePrice.add(attackerDeposit));
+            increaseBalance(defender, price);
+            increaseBalance(msg.sender, price.add(attackerDeposit));
         }
 
         //TODO?: Free up more game storage (elsewhere too)
@@ -172,7 +177,7 @@ contract Casino is Pausable {
 
         game.state = uint(State.CLOSED); // game closed now
         //defender takes all (reward + security deposit)
-        uint reward = game.gamePrice.mul(2).add(game.attackerDeposit);
+        uint reward = game.price.mul(2).add(game.attackerDeposit);
         increaseBalance(defender, reward);
         emit RewardDefenderSinceAttackerRunawayEvent(gameId, reward);
         return true;
@@ -185,7 +190,7 @@ contract Casino is Pausable {
         require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
 
         game.state = uint(State.CLOSED); // game closed now
-        uint refund = game.gamePrice.add(game.attackerDeposit);
+        uint refund = game.price.add(game.attackerDeposit);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(gameId, refund);
         return true;

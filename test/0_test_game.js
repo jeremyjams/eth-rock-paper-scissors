@@ -13,7 +13,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     const depositPercentage = toBN(30);
     const attackMsgValue = toBN(10);
     const attackerDeposit = toBN(Math.floor(attackMsgValue * depositPercentage / 100))
-    const gamePrice = toBN(attackMsgValue - attackerDeposit)
+    const price = toBN(attackMsgValue - attackerDeposit)
 
     const secret = soliditySha3("p4ssw0rd") //take random source instead
     let casino, gameId, ROCK, PAPER, SCISSORS;
@@ -59,23 +59,23 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
     describe("Attack", () => {
         it("should attack", async () => {
-            const attackReceipt = await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, gamePrice: gamePrice, lockedAttackerDeposit: attackerDeposit });
+            const attackReceipt = await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            truffleAssert.eventEmitted(attackReceipt, 'AttackEvent', { gameId: gameId, player: alice, price: price, lockedAttackerDeposit: attackerDeposit });
         });
 
         it("should not attack since empty secretMoveHash", async () => {
             await truffleAssert.reverts(
-                casino.attack('0x', {from: alice, value: gamePrice.add(attackerDeposit)}),
+                casino.attack('0x', {from: alice, value: price.add(attackerDeposit)}),
                 "Provided attackerSecretMoveHash cannot be empty"
             );
         });
 
         it("should not attack twice or reuse secret", async () => {
             //attack
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
             //re-attack
             await truffleAssert.reverts(
-                casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)}),
+                casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)}),
                 "Attacker already played (please defend or start new game instead)"
             );
         });
@@ -85,10 +85,10 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Defend", () => {
         it("should defend", async () => {
             //attack
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
 
             //defend
-            const defendReceipt = await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            const defendReceipt = await casino.defend(gameId, PAPER, {from: bob, value: price});
             truffleAssert.eventEmitted(defendReceipt, 'DefenseEvent', { gameId: gameId, player: bob, move: PAPER });
             const game = await casino.games(gameId);
             assert.strictEqual(game.defender.toString(10), bob, "Defender should be Bob");
@@ -97,21 +97,21 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not defend twice", async () => {
             //attack & defend
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             //re-defend
             await truffleAssert.reverts(
-                casino.defend(gameId, PAPER, {from: bob, value: gamePrice}),
+                casino.defend(gameId, PAPER, {from: bob, value: price}),
                 "Defender already played (please reveal attacker move or start new game instead)"
             );
         });
 
         it("should not defend since value does not match game price", async () => {
             //attack
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
             //defend with wrong value
             await truffleAssert.reverts(
-                casino.defend(gameId, PAPER, {from: bob, value: gamePrice.sub(toBN(1))}),
+                casino.defend(gameId, PAPER, {from: bob, value: price.sub(toBN(1))}),
                 "Value should equal game price"
             );
         });
@@ -121,15 +121,15 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         it("should reveal attack & reward winner with right reward amount", async () => {
             //attack & defend
             const gameId = await casino.buildSecretMoveHashAsGameId(alice, ROCK, secret)
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
 
             // check balance before reward
             const alicePastBalances = await casino.balances(alice);
             assert.strictEqual(alicePastBalances.toString(10), '0', "Alice should not have any balance");
             const bobPastBalances = await casino.balances(bob);
             assert.strictEqual(bobPastBalances.toString(10), '0', "Bob should not have any balance");
-            let reward = gamePrice.mul(toBN(2))
+            let reward = price.mul(toBN(2))
             //reveal & reward
             const rewardWinnerReceipt = await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
             truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: reward, unlockedAttackerDeposit: attackerDeposit });
@@ -137,13 +137,13 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const aliceBalances = await casino.balances(alice);
             assert.strictEqual(aliceBalances.toString(10), attackerDeposit.toString(10), "Alice balance should have unlocked deposit");
             const bobBalances = await casino.balances(bob);
-            assert.strictEqual(bobBalances.toString(10), gamePrice.mul(toBN(2)).toString(10), "Bob balance should equal game price * 2");
+            assert.strictEqual(bobBalances.toString(10), price.mul(toBN(2)).toString(10), "Bob balance should equal game price * 2");
         });
 
         it("should not reward twice", async () => {
             //attack & defend & reveal & reward
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
             //try to reward twice
             await truffleAssert.reverts(
@@ -154,8 +154,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong move", async () => {
             //attack & defend
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.revealAttackAndReward(gameId, SCISSORS, secret, {from: alice}),
@@ -165,8 +165,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong secret", async () => {
             //attack & defend
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.revealAttackAndReward(gameId, ROCK, soliditySha3("b4dp4ssw0rd"), {from: alice}),
@@ -176,8 +176,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong sender", async () => {
             //attack & defend
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.revealAttackAndReward(gameId, ROCK, secret, {from: anyone}),
@@ -190,11 +190,11 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const attackerMove = ROCK
             const defenderMove = PAPER
             gameId = await casino.buildSecretMoveHashAsGameId(alice, attackerMove, secret)
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, defenderMove, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, defenderMove, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.revealAttackAndReward(gameId, attackerMove, secret, {from: alice});
-            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: gamePrice.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
+            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: price.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
         });
 
         it("should reward winner since scissors > paper ", async () => {
@@ -202,11 +202,11 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const attackerMove = SCISSORS
             const defenderMove = PAPER
             gameId = await casino.buildSecretMoveHashAsGameId(alice, attackerMove, secret)
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, defenderMove, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, defenderMove, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.revealAttackAndReward(gameId, attackerMove, secret, {from: alice});
-            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: alice, reward: gamePrice.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
+            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: alice, reward: price.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
         });
 
         it("should reward winner since rock > scissors ", async () => {
@@ -214,25 +214,25 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const attackerMove = SCISSORS
             const defenderMove = ROCK
             gameId = await casino.buildSecretMoveHashAsGameId(alice, attackerMove, secret)
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, defenderMove, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, defenderMove, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.revealAttackAndReward(gameId, attackerMove, secret, {from: alice});
-            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: gamePrice.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
+            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { gameId: gameId, winner: bob, reward: price.mul(toBN(2)), unlockedAttackerDeposit: attackerDeposit });
         });
     });
 
     describe("Withdraw", () => {
         it("should withdraw balance", async () => {
             //attack, defend & reward
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
 
             const balanceBefore = await web3.eth.getBalance(bob);
             // withdraw
             const receipt = await casino.withdrawBalance({from: bob});
-            let expectedWithdrawal = gamePrice.mul(toBN(2));
+            let expectedWithdrawal = price.mul(toBN(2));
             truffleAssert.eventEmitted(receipt, 'WithdrawBalanceEvent', { player: bob, amount: expectedWithdrawal });
 
             // check effective withdraw amount
@@ -248,8 +248,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not withdraw balance since empty balance", async () => {
             //attack, defend & reward
-            await casino.attack(gameId, {from: alice, value: gamePrice.add(attackerDeposit)});
-            await casino.defend(gameId, PAPER, {from: bob, value: gamePrice});
+            await casino.attack(gameId, {from: alice, value: price.add(attackerDeposit)});
+            await casino.defend(gameId, PAPER, {from: bob, value: price});
             await casino.revealAttackAndReward(gameId, ROCK, secret, {from: alice});
 
             // withdraw
