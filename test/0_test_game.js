@@ -21,9 +21,9 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     beforeEach("Fresh contract & accounts", async () => {
         casino = await Casino.new(false, depositPercentage, {from: david});
 
-        ROCK = await casino.getMove(soliditySha3("ROCK"));
-        PAPER = await casino.getMove(soliditySha3("PAPER"));
-        SCISSORS = await casino.getMove(soliditySha3("SCISSORS"));
+        ROCK = await casino.getRock();
+        PAPER = await casino.getPaper();
+        SCISSORS = await casino.getScissors();
 
         gameId = await casino.buildSecretMoveHashAsGameId(alice, ROCK, secret)
     });

@@ -73,15 +73,16 @@ contract Casino is Pausable {
         predators[uint(Move.SCISSORS)] = Move.ROCK;
     }
 
-    function getMove(bytes32 move) public pure returns (Move)  {
-        if (move == keccak256("ROCK")) {
-            return Move.ROCK;
-        } else if (move == keccak256("PAPER")) {
-            return Move.PAPER;
-        } else if (move == keccak256("SCISSORS")) {
-            return Move.SCISSORS;
-        }
-        revert("Move should be keccak256(<ROCK|PAPER|SCISSORS>)");
+    function getRock() public pure returns (Move)  {
+        return Move.ROCK;
+    }
+
+    function getPaper() public pure returns (Move)  {
+        return Move.PAPER;
+    }
+
+    function getScissors() public pure returns (Move)  {
+        return Move.SCISSORS;
     }
 
     function buildSecretMoveHashAsGameId(address player, Move move, bytes32 secret) public view returns (bytes32)  {
