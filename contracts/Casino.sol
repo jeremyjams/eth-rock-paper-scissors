@@ -35,6 +35,7 @@ contract Casino is Pausable {
         address defender;
         Move defenderMove;
         // Ensures game flow and non reentrancy (removed attacker field for saving gas)
+        // At least a required field for reveal timeout timestamp
         // (not using price since could possibly be initially set to ZERO)
         uint state;
     }
@@ -128,6 +129,7 @@ contract Casino is Pausable {
     function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
+        require(game.state == uint(State.ATTACKED), "Game is closed (please start new game instead)");
         require(msg.value == game.price, "Value should equal game price");
 
         game.defender = msg.sender;
@@ -141,9 +143,9 @@ contract Casino is Pausable {
     function revealAttackAndReward(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool success)  {
         Game storage game = games[gameId];
         address defender = game.defender;
+        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
         require(defender != address(0), "Defender should have played");
         require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Failed to decrypt attacker move with attacker secret");
-        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
 
         game.state = uint(State.CLOSED); // game closed now
         uint price = game.price;
@@ -167,8 +169,12 @@ contract Casino is Pausable {
             increaseBalance(msg.sender, price.add(attackerDeposit));
         }
 
-        //TODO?: Free up more game storage (elsewhere too)
         emit RewardWinnerEvent(gameId, winner, reward, attackerDeposit);
+        //clean
+        game.price = 0;
+        game.attackerDeposit = 0;
+        game.defender = address(0);
+        game.defenderMove = Move.UNDEFINED;
         return true;
     }
 
@@ -185,6 +191,11 @@ contract Casino is Pausable {
         uint reward = game.price.mul(2).add(game.attackerDeposit);
         increaseBalance(defender, reward);
         emit RewardDefenderSinceAttackerRunawayEvent(gameId, reward);
+        //clean
+        game.price = 0;
+        game.attackerDeposit = 0;
+        game.defender = address(0);
+        game.defenderMove = Move.UNDEFINED;
         return true;
     }
 
@@ -198,6 +209,11 @@ contract Casino is Pausable {
         uint refund = game.price.add(game.attackerDeposit);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(gameId, refund);
+        //clean
+        game.price = 0;
+        game.attackerDeposit = 0;
+        game.defender = address(0);
+        game.defenderMove = Move.UNDEFINED;
         return true;
     }
 
