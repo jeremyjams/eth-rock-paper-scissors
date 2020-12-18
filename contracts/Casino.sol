@@ -9,11 +9,11 @@ import "./Pausable.sol";
 /*
 * A Casino for playing «rock-paper-scissors» game
 *
-* With Attacker is Alice and Defender is Bob, standard game flow is:
+* With Player1 is Alice and Player2 is Bob, standard game flow is:
 *
-* 1 - attack(attackerSecretMoveHash, {from: alice, value: price.add(attackerDeposit)});
-* 2 - defend(gameId, PAPER, {from: bob, value: price});
-* 3 - revealAttackAndReward(gameId, ROCK, secret, {from: alice});
+* 1 - player1CreateGame(player1SecretMoveHash, {from: alice, value: price.add(player1Deposit)});
+* 2 - player2CommitMove(gameId, PAPER, {from: bob, value: price});
+* 3 - player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
 * 4 - withdrawBalance({from: bob});
 *
 */
@@ -31,10 +31,10 @@ contract Casino is Pausable {
 
     struct Game {
         uint price;
-        uint attackerDeposit;
-        address defender;
-        Move defenderMove;
-        // Ensures game flow and non reentrancy (removed attacker field for saving gas)
+        uint player1Deposit;
+        address player2;
+        Move player2Move;
+        // Ensures game flow and non reentrancy (removed player1 field for saving gas)
         // At least a required field for reveal timeout timestamp
         // (not using price since could possibly be initially set to ZERO)
         uint state;
@@ -49,18 +49,18 @@ contract Casino is Pausable {
 
     enum State {
         UNDEFINED,  //value:    0
-        ATTACKED,   //value:    1
-        //DEFENDED,   value:    reveal timeout timestamp
+        OPEN,   //value:    1
+        //PLAYER2_PLAYED,   value:    reveal timeout timestamp
         CLOSED      //value:    2
     }
 
     //playing
-    event AttackEvent(bytes32 indexed gameId, address indexed player, uint price, uint lockedAttackerDeposit);
-    event DefenseEvent(bytes32 indexed gameId, address indexed player, Move move, uint state);
+    event CreateGameEvent(bytes32 indexed gameId, address indexed player, uint price, uint lockedplayer1Deposit);
+    event Player2MoveEvent(bytes32 indexed gameId, address indexed player, Move move, uint state);
     //end game
     event CanceledGameEvent(bytes32 indexed gameId, uint refund);
-    event RewardDefenderSinceAttackerRunawayEvent(bytes32 indexed gameId, uint reward);
-    event RewardWinnerEvent(bytes32 indexed gameId, address indexed winner, uint reward, uint unlockedAttackerDeposit);
+    event RewardPlayer2SincePlayer1RunawayEvent(bytes32 indexed gameId, uint reward);
+    event RewardWinnerEvent(bytes32 indexed gameId, address indexed winner, uint reward, uint unlockedplayer1Deposit);
     //balance
     event IncreasedBalanceEvent(address indexed player, uint amount);
     event WithdrawBalanceEvent(address indexed player, uint amount);
@@ -85,13 +85,13 @@ contract Casino is Pausable {
         return Move.SCISSORS;
     }
 
-    function buildSecretMoveHashAsGameId(address player, Move move, bytes32 secret) public view returns (bytes32)  {
-        require(player != address(0), "Player should not be empty");
+    function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
+        require(player1 != address(0), "Player should not be empty");
         require(secret != bytes32(0), "Secret should not be empty");
 
         return keccak256(abi.encodePacked(
                 address(this),
-                player,
+                player1,
                 uint(move),
                 secret
             ));
@@ -103,117 +103,117 @@ contract Casino is Pausable {
     }
 
     /*
-    * The attacker (1) pays a price <price> for playing (so does defender),
-    * but also (2) temporarily locks an amount <attackerDeposit> to force
+    * The player1 (1) pays a price <price> for playing (so does player2),
+    * but also (2) temporarily locks an amount <player1Deposit> to force
     * him to stay until the end of the game (in case he's a sore loser)
     *
-    * Note: An attacker can initiate a free game. In this case there is no
-    * guaranty protecting the defender if the attacker is uncooperative
-    * (defender has almost nothing to loose but only tx gas price for playing)
+    * Note: A player1 can initiate a free game. In this case there is no
+    * guaranty protecting the player2 if the player1 is uncooperative
+    * (player2 has almost nothing to loose but only tx gas price for playing)
     */
-    function attack(bytes32 attackerSecretMoveHash) public payable whenNotPaused returns (bool)  {
-        require(attackerSecretMoveHash != bytes32(0), "Provided attackerSecretMoveHash cannot be empty");
-        // attackerSecretMoveHash is gameId
-        Game storage game = games[attackerSecretMoveHash];
-        require(game.state == uint(State.UNDEFINED), "Attacker already played (please defend or start new game instead)");
+    function player1CreateGame(bytes32 player1SecretMoveHash) public payable whenNotPaused returns (bool)  {
+        require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
+        // player1SecretMoveHash is gameId
+        Game storage game = games[player1SecretMoveHash];
+        require(game.state == uint(State.UNDEFINED), "Player1 already played");
 
-        game.state = uint(State.ATTACKED);
-        uint attackerDeposit = msg.value.mul(depositPercentage).div(100);
-        uint price = msg.value.sub(attackerDeposit);
+        game.state = uint(State.OPEN);
+        uint player1Deposit = msg.value.mul(depositPercentage).div(100);
+        uint price = msg.value.sub(player1Deposit);
         game.price = price;
-        game.attackerDeposit = attackerDeposit;
-        emit AttackEvent(attackerSecretMoveHash, msg.sender, price, attackerDeposit);
+        game.player1Deposit = player1Deposit;
+        emit CreateGameEvent(player1SecretMoveHash, msg.sender, price, player1Deposit);
         return true;
     }
 
-    function defend(bytes32 gameId, Move defenderMove) public payable whenNotPaused returns (bool)  {
+    function player2CommitMove(bytes32 gameId, Move player2Move) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
-        require(game.defender == address(0), "Defender already played (please reveal attacker move or start new game instead)");
-        require(game.state == uint(State.ATTACKED), "Game is closed (please start new game instead)");
+        require(game.player2 == address(0), "Player2 already played");
+        require(game.state == uint(State.OPEN), "Game is closed");
         require(msg.value == game.price, "Value should equal game price");
 
-        game.defender = msg.sender;
-        game.defenderMove = defenderMove;
+        game.player2 = msg.sender;
+        game.player2Move = player2Move;
         uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
         game.state = revealTimeoutDate;
-        emit DefenseEvent(gameId, msg.sender, defenderMove, revealTimeoutDate);
+        emit Player2MoveEvent(gameId, msg.sender, player2Move, revealTimeoutDate);
         return true;
     }
 
-    function revealAttackAndReward(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool success)  {
+    function player1RevealMoveAndReward(bytes32 gameId, Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool success)  {
         Game storage game = games[gameId];
-        address defender = game.defender;
-        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
-        require(defender != address(0), "Defender should have played");
-        require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Failed to decrypt attacker move with attacker secret");
+        address player2 = game.player2;
+        require(game.state != uint(State.CLOSED), "Game is closed");
+        require(player2 != address(0), "Player2 should have played");
+        require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
 
         game.state = uint(State.CLOSED); // game closed now
         uint price = game.price;
-        uint attackerDeposit = game.attackerDeposit;
+        uint player1Deposit = game.player1Deposit;
         uint reward = price.mul(2);
         address winner;
-        Move defenderMove = game.defenderMove;
+        Move player2Move = game.player2Move;
 
-        if (attackerMove == predators[uint(defenderMove)]) {
+        if (player1Move == predators[uint(player2Move)]) {
             winner = msg.sender;
-            increaseBalance(msg.sender, reward.add(attackerDeposit));
+            increaseBalance(msg.sender, reward.add(player1Deposit));
             // refund deposit too
-        } else if (defenderMove == predators[uint(attackerMove)]) {
-            winner = defender;
-            increaseBalance(defender, reward);
-            increaseBalance(msg.sender, attackerDeposit);
-        } else {//not sure could happen, at least avoids dead lock for attacker
+        } else if (player2Move == predators[uint(player1Move)]) {
+            winner = player2;
+            increaseBalance(player2, reward);
+            increaseBalance(msg.sender, player1Deposit);
+        } else {//not sure could happen, at least avoids dead lock for player1
             winner = address(0);
             //refund
-            increaseBalance(defender, price);
-            increaseBalance(msg.sender, price.add(attackerDeposit));
+            increaseBalance(player2, price);
+            increaseBalance(msg.sender, price.add(player1Deposit));
         }
 
-        emit RewardWinnerEvent(gameId, winner, reward, attackerDeposit);
+        emit RewardWinnerEvent(gameId, winner, reward, player1Deposit);
         //clean
         game.price = 0;
-        game.attackerDeposit = 0;
-        game.defender = address(0);
-        game.defenderMove = Move.UNDEFINED;
+        game.player1Deposit = 0;
+        game.player2 = address(0);
+        game.player2Move = Move.UNDEFINED;
         return true;
     }
 
-    function rewardDefenderSinceAttackerRunaway(bytes32 gameId) public whenNotPaused returns (bool)  {// could be trigger by anyone
+    function rewardPlayer2SincePlayer1Runaway(bytes32 gameId) public whenNotPaused returns (bool)  {// could be trigger by anyone
         Game storage game = games[gameId];
-        address defender = game.defender;
-        require(defender != address(0), "Defender should have played");
+        address player2 = game.player2;
+        require(player2 != address(0), "Player2 should have played");
         uint state = game.state;
-        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
-        require(now > state, "Should wait reveal period for rewarding defender");
+        require(game.state != uint(State.CLOSED), "Game is closed");
+        require(now > state, "Should wait reveal period for rewarding player2");
 
         game.state = uint(State.CLOSED); // game closed now
-        //defender takes all (reward + security deposit)
-        uint reward = game.price.mul(2).add(game.attackerDeposit);
-        increaseBalance(defender, reward);
-        emit RewardDefenderSinceAttackerRunawayEvent(gameId, reward);
+        //player2 takes all (reward + security deposit)
+        uint reward = game.price.mul(2).add(game.player1Deposit);
+        increaseBalance(player2, reward);
+        emit RewardPlayer2SincePlayer1RunawayEvent(gameId, reward);
         //clean
         game.price = 0;
-        game.attackerDeposit = 0;
-        game.defender = address(0);
-        game.defenderMove = Move.UNDEFINED;
+        game.player1Deposit = 0;
+        game.player2 = address(0);
+        game.player2Move = Move.UNDEFINED;
         return true;
     }
 
-    function cancelGame(bytes32 gameId, Move attackerMove, bytes32 attackerSecret) public whenNotPaused returns (bool)  {
+    function cancelGame(bytes32 gameId, Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
-        require(buildSecretMoveHashAsGameId(msg.sender, attackerMove, attackerSecret) == gameId, "Only attacker can cancel attack");
-        require(game.defender == address(0), "Defender already player (please reveal instead)");
-        require(game.state != uint(State.CLOSED), "Game is closed (please start new game instead)");
+        require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Only player1 can cancel createGame");
+        require(game.player2 == address(0), "Player2 already player (please reveal instead)");
+        require(game.state != uint(State.CLOSED), "Game is closed");
 
         game.state = uint(State.CLOSED); // game closed now
-        uint refund = game.price.add(game.attackerDeposit);
+        uint refund = game.price.add(game.player1Deposit);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(gameId, refund);
         //clean
         game.price = 0;
-        game.attackerDeposit = 0;
-        game.defender = address(0);
-        game.defenderMove = Move.UNDEFINED;
+        game.player1Deposit = 0;
+        game.player2 = address(0);
+        game.player2Move = Move.UNDEFINED;
         return true;
     }
 
