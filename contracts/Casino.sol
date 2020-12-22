@@ -48,22 +48,50 @@ contract Casino is Pausable {
     }
 
     enum State {
-        UNDEFINED,  //value:    0
-        OPEN,   //value:    1
-        //PLAYER2_PLAYED,   value:    reveal timeout timestamp
-        CLOSED      //value:    2
+        UNDEFINED,          //value:    0
+        OPEN,               //value:    1
+        //PLAYER2_PLAYED,   //value:    reveal timeout timestamp
+        CLOSED              //value:    2
     }
 
-    //playing
-    event CreateGameEvent(bytes32 indexed gameId, address indexed player, uint price, uint lockedplayer1Deposit);
-    event Player2MoveEvent(bytes32 indexed gameId, address indexed player, Move move, uint state);
-    //end game
-    event CanceledGameEvent(bytes32 indexed gameId, uint refund);
-    event RewardPlayer2SincePlayer1RunawayEvent(bytes32 indexed gameId, uint reward);
-    event RewardWinnerEvent(bytes32 indexed gameId, address indexed winner, uint reward, uint unlockedplayer1Deposit);
-    //balance
-    event IncreasedBalanceEvent(address indexed player, uint amount);
-    event WithdrawBalanceEvent(address indexed player, uint amount);
+    event CreateGameEvent(
+        address indexed player,
+        uint amount,
+        bytes32 indexed gameId,
+        uint lockedplayer1Deposit
+    );
+    event Player2MoveEvent(
+        address indexed player,
+        uint amount,
+        bytes32 indexed gameId,
+        Move move,
+        uint revealTimeoutDate
+    );
+    event RewardPlayer2SincePlayer1RunawayEvent(
+        address indexed player,
+        uint amount,
+        bytes32 indexed gameId
+    );
+    event RewardWinnerEvent(
+        address indexed player,
+        uint amount,
+        bytes32 indexed gameId,
+        Move player1Move,
+        uint unlockedplayer1Deposit
+    );
+    event CanceledGameEvent(
+        address indexed player,
+        uint amount,
+        bytes32 indexed gameId
+    );
+    event IncreasedBalanceEvent(
+        address indexed player,
+        uint amount
+    );
+    event WithdrawBalanceEvent(
+        address indexed player,
+        uint amount
+    );
 
     constructor(bool isPaused, uint _depositPercentage) public Pausable(isPaused) {
         setDepositPercentage(_depositPercentage);
@@ -122,7 +150,7 @@ contract Casino is Pausable {
         uint price = msg.value.sub(player1Deposit);
         game.price = price;
         game.player1Deposit = player1Deposit;
-        emit CreateGameEvent(player1SecretMoveHash, msg.sender, price, player1Deposit);
+        emit CreateGameEvent(msg.sender, price, player1SecretMoveHash, player1Deposit);
         return true;
     }
 
@@ -136,7 +164,7 @@ contract Casino is Pausable {
         game.player2Move = player2Move;
         uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
         game.state = revealTimeoutDate;
-        emit Player2MoveEvent(gameId, msg.sender, player2Move, revealTimeoutDate);
+        emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
     }
 
@@ -147,7 +175,7 @@ contract Casino is Pausable {
         require(player2 != address(0), "Player2 should have played");
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
 
-        game.state = uint(State.CLOSED); // game closed now
+        game.state = uint(State.CLOSED);
         uint price = game.price;
         uint player1Deposit = game.player1Deposit;
         uint reward = price.mul(2);
@@ -157,7 +185,6 @@ contract Casino is Pausable {
         if (player1Move == predators[uint(player2Move)]) {
             winner = msg.sender;
             increaseBalance(msg.sender, reward.add(player1Deposit));
-            // refund deposit too
         } else if (player2Move == predators[uint(player1Move)]) {
             winner = player2;
             increaseBalance(player2, reward);
@@ -169,7 +196,7 @@ contract Casino is Pausable {
             increaseBalance(msg.sender, price.add(player1Deposit));
         }
 
-        emit RewardWinnerEvent(gameId, winner, reward, player1Deposit);
+        emit RewardWinnerEvent(winner, reward, gameId, player1Move, player1Deposit);
         //clean
         game.price = 0;
         game.player1Deposit = 0;
@@ -186,11 +213,11 @@ contract Casino is Pausable {
         require(game.state != uint(State.CLOSED), "Game is closed");
         require(now > state, "Should wait reveal period for rewarding player2");
 
-        game.state = uint(State.CLOSED); // game closed now
+        game.state = uint(State.CLOSED);
         //player2 takes all (reward + security deposit)
         uint reward = game.price.mul(2).add(game.player1Deposit);
         increaseBalance(player2, reward);
-        emit RewardPlayer2SincePlayer1RunawayEvent(gameId, reward);
+        emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
         //clean
         game.price = 0;
         game.player1Deposit = 0;
@@ -205,10 +232,10 @@ contract Casino is Pausable {
         require(game.player2 == address(0), "Player2 already player (please reveal instead)");
         require(game.state != uint(State.CLOSED), "Game is closed");
 
-        game.state = uint(State.CLOSED); // game closed now
+        game.state = uint(State.CLOSED);
         uint refund = game.price.add(game.player1Deposit);
         increaseBalance(msg.sender, refund);
-        emit CanceledGameEvent(gameId, refund);
+        emit CanceledGameEvent(msg.sender, refund, gameId);
         //clean
         game.price = 0;
         game.player1Deposit = 0;
@@ -216,8 +243,6 @@ contract Casino is Pausable {
         game.player2Move = Move.UNDEFINED;
         return true;
     }
-
-    //TODO?: Add depositBalance() public
 
     function withdrawBalance() public whenNotPaused returns (bool success)  {
         uint balance = balances[msg.sender];
