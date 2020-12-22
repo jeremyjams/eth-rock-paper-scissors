@@ -28,6 +28,13 @@ contract Casino is Pausable {
     mapping(bytes32 => Game) public games;
     // playerAddress -> balances
     mapping(address => uint) public balances;
+    /*
+    * Records game IDs.
+    * Allows player2 to join any game he wants.
+    * Note: It's required to firstly check game is still opened before joining it
+    * (by querying games map or watching logs)
+    */
+    bytes32[] public openGames;
 
     struct Game {
         uint price;
@@ -145,6 +152,7 @@ contract Casino is Pausable {
         Game storage game = games[player1SecretMoveHash];
         require(game.state == uint(State.UNDEFINED), "Player1 already played");
 
+        openGames.push(player1SecretMoveHash);
         game.state = uint(State.OPEN);
         uint player1Deposit = msg.value.mul(depositPercentage).div(100);
         uint price = msg.value.sub(player1Deposit);
