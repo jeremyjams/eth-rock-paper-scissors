@@ -14,6 +14,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     const createGameMsgValue = toBN(10);
     const player1Deposit = toBN(Math.floor(createGameMsgValue * depositPercentage / 100))
     const price = toBN(createGameMsgValue - player1Deposit)
+    const revealPeriod = 60; //seconds
 
     const secret = soliditySha3("p4ssw0rd") //take random source instead
     let casino, gameId, ROCK, PAPER, SCISSORS;
@@ -64,23 +65,23 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
     describe("Player1 will create game", () => {
         it("should createGame", async () => {
-            const createGameReceipt = await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
-            truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, lockedplayer1Deposit: player1Deposit });
+            const createGameReceipt = await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
+            truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, revealPeriod: toBN(revealPeriod), lockedplayer1Deposit: player1Deposit });
         });
 
         it("should not createGame since empty secretMoveHash", async () => {
             await truffleAssert.reverts(
-                casino.player1CreateGame('0x', {from: alice, value: price.add(player1Deposit)}),
+                casino.player1CreateGame('0x', revealPeriod, {from: alice, value: price.add(player1Deposit)}),
                 "Provided player1SecretMoveHash cannot be empty"
             );
         });
 
         it("should not createGame twice or reuse secret", async () => {
             //createGame
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             //re-createGame
             await truffleAssert.reverts(
-                casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)}),
+                casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)}),
                 "Player1 already played"
             );
         });
@@ -90,7 +91,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Player2 will commit move", () => {
         it("should player2CommitMove", async () => {
             //createGame
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
 
             //player2CommitMove
             const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
@@ -102,7 +103,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not player2CommitMove twice", async () => {
             //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //re-player2CommitMove
             await truffleAssert.reverts(
@@ -113,7 +114,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not player2CommitMove since value does not match game price", async () => {
             //createGame
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             //player2CommitMove with wrong value
             await truffleAssert.reverts(
                 casino.player2CommitMove(gameId, PAPER, {from: bob, value: price.sub(toBN(1))}),
@@ -126,7 +127,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         it("should player1 reveal & reward winner with right reward amount", async () => {
             //createGame & player2CommitMove
             const gameId = await casino.buildSecretMoveHashAsGameId(alice, ROCK, secret)
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
 
             // check balance before reward
@@ -147,7 +148,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reward twice", async () => {
             //createGame & player2CommitMove & reveal & reward
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
             //try to reward twice
@@ -159,7 +160,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong move", async () => {
             //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
@@ -170,7 +171,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong secret", async () => {
             //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
@@ -181,7 +182,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not reveal since wrong sender", async () => {
             //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
@@ -195,7 +196,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = ROCK
             const player2Move = PAPER
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, player1Move, secret, {from: alice});
@@ -207,7 +208,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = SCISSORS
             const player2Move = PAPER
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, player1Move, secret, {from: alice});
@@ -219,7 +220,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = SCISSORS
             const player2Move = ROCK
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, player1Move, secret, {from: alice});
@@ -230,7 +231,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Withdraw", () => {
         it("should withdraw balance", async () => {
             //createGame, player2CommitMove & reward
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
 
@@ -253,7 +254,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not withdraw balance since empty balance", async () => {
             //createGame, player2CommitMove & reward
-            await casino.player1CreateGame(gameId, {from: alice, value: price.add(player1Deposit)});
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
 

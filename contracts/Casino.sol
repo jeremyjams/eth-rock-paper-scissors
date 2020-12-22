@@ -20,7 +20,6 @@ import "./Pausable.sol";
 contract Casino is Pausable {
 
     using SafeMath for uint;
-    uint public constant REVEAL_PERIOD = 5 minutes;
     mapping(uint => Move) public predators;
     uint public depositPercentage;
 
@@ -39,6 +38,8 @@ contract Casino is Pausable {
     struct Game {
         uint price;
         uint player1Deposit;
+        // in seconds
+        uint player1RevealPeriod;
         address player2;
         Move player2Move;
         // Ensures game flow and non reentrancy (removed player1 field for saving gas)
@@ -65,6 +66,7 @@ contract Casino is Pausable {
         address indexed player,
         uint amount,
         bytes32 indexed gameId,
+        uint revealPeriod,
         uint lockedplayer1Deposit
     );
     event Player2MoveEvent(
@@ -146,7 +148,7 @@ contract Casino is Pausable {
     * guaranty protecting the player2 if the player1 is uncooperative
     * (player2 has almost nothing to loose but only tx gas price for playing)
     */
-    function player1CreateGame(bytes32 player1SecretMoveHash) public payable whenNotPaused returns (bool)  {
+    function player1CreateGame(bytes32 player1SecretMoveHash, uint revealPeriod) public payable whenNotPaused returns (bool)  {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
@@ -158,7 +160,8 @@ contract Casino is Pausable {
         uint price = msg.value.sub(player1Deposit);
         game.price = price;
         game.player1Deposit = player1Deposit;
-        emit CreateGameEvent(msg.sender, price, player1SecretMoveHash, player1Deposit);
+        game.player1RevealPeriod = revealPeriod;
+        emit CreateGameEvent(msg.sender, price, player1SecretMoveHash, revealPeriod, player1Deposit);
         return true;
     }
 
@@ -170,7 +173,7 @@ contract Casino is Pausable {
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
-        uint revealTimeoutDate = now.add(REVEAL_PERIOD.mul(1 minutes));
+        uint revealTimeoutDate = now.add(game.player1RevealPeriod.mul(1 seconds));
         game.state = revealTimeoutDate;
         emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
