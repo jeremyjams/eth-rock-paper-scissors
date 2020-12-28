@@ -22,8 +22,6 @@ contract Casino is Pausable {
     using SafeMath for uint;
     uint constant MIN_TIMEOUT = 1;
     uint constant REVEAL_SECONDS = 1 seconds;
-    mapping(uint => Move) public predators;
-    uint public depositPercentage;
 
     // gameId -> Game
     mapping(bytes32 => Game) public games;
@@ -101,9 +99,6 @@ contract Casino is Pausable {
     );
 
     constructor(bool isPaused) public Pausable(isPaused) {
-        predators[uint(Move.ROCK)] = Move.PAPER;
-        predators[uint(Move.PAPER)] = Move.SCISSORS;
-        predators[uint(Move.SCISSORS)] = Move.ROCK;
     }
 
     function getRock() public pure returns (Move)  {
@@ -116,6 +111,18 @@ contract Casino is Pausable {
 
     function getScissors() public pure returns (Move)  {
         return Move.SCISSORS;
+    }
+
+    function getWinningMove(Move move) public pure returns (Move)  {
+        if(move == Move.ROCK){
+            return Move.PAPER;
+        } else if(move == Move.PAPER){
+            return Move.SCISSORS;
+        } else if(move == Move.SCISSORS){
+            return Move.ROCK;
+        } else {
+            return Move.UNDEFINED;
+        }
     }
 
     function viewGameState(bytes32 gameId) public view returns (State)  {
@@ -195,17 +202,16 @@ contract Casino is Pausable {
         require(player2 != address(0), "Player2 should have played");
         require(game.revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
-
-
+        
         uint price = game.price;
         uint reward = price.mul(2);
         address winner;
         Move player2Move = game.player2Move;
 
-        if (player1Move == predators[uint(player2Move)]) {
+        if (player1Move == getWinningMove(player2Move)) {
             winner = msg.sender;
             increaseBalance(msg.sender, reward);
-        } else if (player2Move == predators[uint(player1Move)]) {
+        } else if (player2Move == getWinningMove(player1Move)) {
             winner = player2;
             increaseBalance(player2, reward);
         } else {//not sure could happen, at least avoids dead lock for player1
