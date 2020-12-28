@@ -20,6 +20,7 @@ import "./Pausable.sol";
 contract Casino is Pausable {
 
     using SafeMath for uint;
+    uint constant MIN_TIMEOUT = 1;
     mapping(uint => Move) public predators;
     uint public depositPercentage;
 
@@ -36,16 +37,15 @@ contract Casino is Pausable {
     bytes32[] public openGames;
 
     struct Game {
+        bool isAlreadyUsed;
         uint price;
         uint player1Deposit;
         // in seconds
         uint player1RevealPeriod;
         address player2;
         Move player2Move;
-        // Ensures game flow and non reentrancy (removed player1 field for saving gas)
-        // At least a required field for reveal timeout timestamp
-        // (not using price since could possibly be initially set to ZERO)
-        uint state;
+        // Can hold a special value MIN_TIMEOUT allowing to ensure workflow correctness
+        uint revealTimeout;
     }
 
     enum Move {
@@ -56,10 +56,10 @@ contract Casino is Pausable {
     }
 
     enum State {
-        UNDEFINED,          //value:    0
-        OPEN,               //value:    1
-        //PLAYER2_PLAYED,   //value:    reveal timeout timestamp
-        CLOSED              //value:    2
+        UNDEFINED,
+        WAITING_PLAYER_2_MOVE,
+        WAITING_PLAYER_1_REVEAL,
+        CLOSED
     }
 
     event CreateGameEvent(
@@ -122,6 +122,30 @@ contract Casino is Pausable {
         return Move.SCISSORS;
     }
 
+    function viewGameState(bytes32 gameId) public view returns (State)  {
+        require(gameId != 0, "Game ID should not be empty");
+
+        Game storage game = games[gameId];
+
+        if(game.isAlreadyUsed == false){
+            return State.UNDEFINED;
+        }
+
+        if(game.player2 == address(0) && game.revealTimeout == MIN_TIMEOUT){
+            return State.WAITING_PLAYER_2_MOVE;
+        }
+
+        if(game.player2 != address(0) && game.revealTimeout > MIN_TIMEOUT){
+            return State.WAITING_PLAYER_1_REVEAL;
+        }
+
+        if(game.player2 == address(0) && game.revealTimeout == 0){
+            return State.CLOSED;
+        }
+
+        revert("Game is an weird state");
+    }
+
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
         require(player1 != address(0), "Player should not be empty");
         require(secret != bytes32(0), "Secret should not be empty");
@@ -152,10 +176,11 @@ contract Casino is Pausable {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
-        require(game.state == uint(State.UNDEFINED), "Player1 already played");
+        require(game.isAlreadyUsed == false, "Game already used");
 
         openGames.push(player1SecretMoveHash);
-        game.state = uint(State.OPEN);
+        game.isAlreadyUsed = true;
+        game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
         uint player1Deposit = msg.value.mul(depositPercentage).div(100);
         uint price = msg.value.sub(player1Deposit);
         game.price = price;
@@ -168,13 +193,14 @@ contract Casino is Pausable {
     function player2CommitMove(bytes32 gameId, Move player2Move) public payable whenNotPaused returns (bool)  {
         Game storage game = games[gameId];
         require(game.player2 == address(0), "Player2 already played");
-        require(game.state == uint(State.OPEN), "Game is closed");
+        require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
         require(msg.value == game.price, "Value should equal game price");
+        // add undefined move require
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
         uint revealTimeoutDate = now.add(game.player1RevealPeriod.mul(1 seconds));
-        game.state = revealTimeoutDate;
+        game.revealTimeout = revealTimeoutDate;
         emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
     }
@@ -182,11 +208,11 @@ contract Casino is Pausable {
     function player1RevealMoveAndReward(bytes32 gameId, Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool success)  {
         Game storage game = games[gameId];
         address player2 = game.player2;
-        require(game.state != uint(State.CLOSED), "Game is closed");
         require(player2 != address(0), "Player2 should have played");
+        require(game.revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
 
-        game.state = uint(State.CLOSED);
+
         uint price = game.price;
         uint player1Deposit = game.player1Deposit;
         uint reward = price.mul(2);
@@ -213,6 +239,7 @@ contract Casino is Pausable {
         game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
+        game.revealTimeout = 0;
         return true;
     }
 
@@ -220,11 +247,10 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         address player2 = game.player2;
         require(player2 != address(0), "Player2 should have played");
-        uint state = game.state;
-        require(game.state != uint(State.CLOSED), "Game is closed");
-        require(now > state, "Should wait reveal period for rewarding player2");
+        uint revealTimeout = game.revealTimeout;
+        require(revealTimeout > MIN_TIMEOUT, "Game is closed");
+        require(now > revealTimeout, "Should wait reveal period for rewarding player2");
 
-        game.state = uint(State.CLOSED);
         //player2 takes all (reward + security deposit)
         uint reward = game.price.mul(2).add(game.player1Deposit);
         increaseBalance(player2, reward);
@@ -234,6 +260,7 @@ contract Casino is Pausable {
         game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
+        game.revealTimeout = 0;
         return true;
     }
 
@@ -241,9 +268,8 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Only player1 can cancel createGame");
         require(game.player2 == address(0), "Player2 already player (please reveal instead)");
-        require(game.state != uint(State.CLOSED), "Game is closed");
+        require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
 
-        game.state = uint(State.CLOSED);
         uint refund = game.price.add(game.player1Deposit);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
@@ -252,6 +278,7 @@ contract Casino is Pausable {
         game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
+        game.revealTimeout = 0;
         return true;
     }
 

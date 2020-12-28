@@ -17,7 +17,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     const revealPeriod = 60; //seconds
 
     const secret = soliditySha3("p4ssw0rd") //take random source instead
-    let casino, gameId, ROCK, PAPER, SCISSORS;
+    let casino, gameId, ROCK, PAPER, SCISSORS, State;
 
     beforeEach("Fresh contract & accounts", async () => {
         casino = await Casino.new(false, depositPercentage, {from: david});
@@ -30,8 +30,11 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         ROCK = Move.ROCK
         PAPER = Move.PAPER
         SCISSORS = Move.SCISSORS
+        State = Object.freeze({"UNDEFINED":toBN(0), "WAITING_PLAYER_2_MOVE":toBN(1), "WAITING_PLAYER_1_REVEAL":toBN(2), "CLOSED":toBN(3)})
 
         gameId = await casino.buildSecretMoveHashAsGameId(alice, ROCK, secret)
+        const gameStateBefore  = await casino.viewGameState(gameId);
+        assert.strictEqual(gameStateBefore.toString(10), State.UNDEFINED.toString(10), "Game should be UNDEFINED");
     });
 
     describe("Build secret move hash", () => {
@@ -67,6 +70,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         it("should createGame", async () => {
             const createGameReceipt = await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)});
             truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, revealPeriod: toBN(revealPeriod), lockedplayer1Deposit: player1Deposit });
+            const gameStateAfter  = await casino.viewGameState(gameId);
+            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
         });
 
         it("should not createGame since empty secretMoveHash", async () => {
@@ -82,7 +87,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //re-createGame
             await truffleAssert.reverts(
                 casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price.add(player1Deposit)}),
-                "Player1 already played"
+                "Game already used"
             );
         });
 
@@ -96,6 +101,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //player2CommitMove
             const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: PAPER });
+            const gameStateAfter  = await casino.viewGameState(gameId);
+            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
             const game = await casino.games(gameId);
             assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
             assert.strictEqual(game.player2Move.toString(10), PAPER.toString(10), "Move should be PAPER(1)");
@@ -139,6 +146,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //reveal & reward
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
             truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { player: bob, amount: reward, gameId: gameId, player1Move: ROCK, unlockedplayer1Deposit: player1Deposit });
+            const gameStateAfter  = await casino.viewGameState(gameId);
+            assert.strictEqual(gameStateAfter.toString(10), State.CLOSED.toString(10), "Game should be CLOSED");
             //check reward
             const aliceBalances = await casino.balances(alice);
             assert.strictEqual(aliceBalances.toString(10), player1Deposit.toString(10), "Alice balance should have unlocked deposit");
@@ -154,7 +163,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reward twice
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice}),
-                "Game is closed"
+                "Player2 should have played"
             );
         });
 
