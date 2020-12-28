@@ -39,7 +39,6 @@ contract Casino is Pausable {
     struct Game {
         bool isAlreadyUsed;
         uint price;
-        uint player1Deposit;
         // in seconds
         uint player1RevealPeriod;
         address player2;
@@ -66,8 +65,7 @@ contract Casino is Pausable {
         address indexed player,
         uint amount,
         bytes32 indexed gameId,
-        uint revealPeriod,
-        uint lockedplayer1Deposit
+        uint revealPeriod
     );
     event Player2MoveEvent(
         address indexed player,
@@ -85,8 +83,7 @@ contract Casino is Pausable {
         address indexed player,
         uint amount,
         bytes32 indexed gameId,
-        Move player1Move,
-        uint unlockedplayer1Deposit
+        Move player1Move
     );
     event CanceledGameEvent(
         address indexed player,
@@ -102,9 +99,7 @@ contract Casino is Pausable {
         uint amount
     );
 
-    constructor(bool isPaused, uint _depositPercentage) public Pausable(isPaused) {
-        setDepositPercentage(_depositPercentage);
-
+    constructor(bool isPaused) public Pausable(isPaused) {
         predators[uint(Move.ROCK)] = Move.PAPER;
         predators[uint(Move.PAPER)] = Move.SCISSORS;
         predators[uint(Move.SCISSORS)] = Move.ROCK;
@@ -158,16 +153,7 @@ contract Casino is Pausable {
             ));
     }
 
-    function setDepositPercentage(uint _depositPercentage) public onlyOwner {
-        require(_depositPercentage <= 100, "Deposit percentage should be between 0 and 100");
-        depositPercentage = _depositPercentage;
-    }
-
     /*
-    * The player1 (1) pays a price <price> for playing (so does player2),
-    * but also (2) temporarily locks an amount <player1Deposit> to force
-    * him to stay until the end of the game (in case he's a sore loser)
-    *
     * Note: A player1 can initiate a free game. In this case there is no
     * guaranty protecting the player2 if the player1 is uncooperative
     * (player2 has almost nothing to loose but only tx gas price for playing)
@@ -181,12 +167,9 @@ contract Casino is Pausable {
         openGames.push(player1SecretMoveHash);
         game.isAlreadyUsed = true;
         game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
-        uint player1Deposit = msg.value.mul(depositPercentage).div(100);
-        uint price = msg.value.sub(player1Deposit);
-        game.price = price;
-        game.player1Deposit = player1Deposit;
+        game.price = msg.value;
         game.player1RevealPeriod = revealPeriod;
-        emit CreateGameEvent(msg.sender, price, player1SecretMoveHash, revealPeriod, player1Deposit);
+        emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, revealPeriod);
         return true;
     }
 
@@ -214,29 +197,26 @@ contract Casino is Pausable {
 
 
         uint price = game.price;
-        uint player1Deposit = game.player1Deposit;
         uint reward = price.mul(2);
         address winner;
         Move player2Move = game.player2Move;
 
         if (player1Move == predators[uint(player2Move)]) {
             winner = msg.sender;
-            increaseBalance(msg.sender, reward.add(player1Deposit));
+            increaseBalance(msg.sender, reward);
         } else if (player2Move == predators[uint(player1Move)]) {
             winner = player2;
             increaseBalance(player2, reward);
-            increaseBalance(msg.sender, player1Deposit);
         } else {//not sure could happen, at least avoids dead lock for player1
             winner = address(0);
             //refund
             increaseBalance(player2, price);
-            increaseBalance(msg.sender, price.add(player1Deposit));
+            increaseBalance(msg.sender, price);
         }
 
-        emit RewardWinnerEvent(winner, reward, gameId, player1Move, player1Deposit);
+        emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         //clean
         game.price = 0;
-        game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
         game.revealTimeout = 0;
@@ -252,12 +232,11 @@ contract Casino is Pausable {
         require(now > revealTimeout, "Should wait reveal period for rewarding player2");
 
         //player2 takes all (reward + security deposit)
-        uint reward = game.price.mul(2).add(game.player1Deposit);
+        uint reward = game.price.mul(2);
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
         //clean
         game.price = 0;
-        game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
         game.revealTimeout = 0;
@@ -270,12 +249,11 @@ contract Casino is Pausable {
         require(game.player2 == address(0), "Player2 already player (please reveal instead)");
         require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
 
-        uint refund = game.price.add(game.player1Deposit);
+        uint refund = game.price;
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
         //clean
         game.price = 0;
-        game.player1Deposit = 0;
         game.player2 = address(0);
         game.player2Move = Move.UNDEFINED;
         game.revealTimeout = 0;
