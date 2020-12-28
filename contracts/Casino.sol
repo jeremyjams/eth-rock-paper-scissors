@@ -21,6 +21,7 @@ contract Casino is Pausable {
 
     using SafeMath for uint;
     uint constant MIN_TIMEOUT = 1;
+    uint constant REVEAL_SECONDS = 1 seconds;
     mapping(uint => Move) public predators;
     uint public depositPercentage;
 
@@ -182,7 +183,7 @@ contract Casino is Pausable {
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
-        uint revealTimeoutDate = now.add(game.player1RevealPeriod.mul(1 seconds));
+        uint revealTimeoutDate = now.add(game.player1RevealPeriod.mul(REVEAL_SECONDS));
         game.revealTimeout = revealTimeoutDate;
         emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
