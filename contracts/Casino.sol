@@ -151,6 +151,9 @@ contract Casino is Pausable {
 
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
         require(player1 != address(0), "Player should not be empty");
+        //Added check which is optional since a player1 can forge any unique
+        // gameId (not in his interest though)
+        require(move != Move.UNDEFINED, "Move cannot be UNDEFINED");
         require(secret != bytes32(0), "Secret should not be empty");
 
         return keccak256(abi.encodePacked(
@@ -185,8 +188,8 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         require(game.player2 == address(0), "Player2 already played");
         require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
+        require(player2Move != Move.UNDEFINED, "Move cannot be UNDEFINED");
         require(msg.value == game.price, "Value should equal game price");
-        // add undefined move require
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
@@ -202,24 +205,17 @@ contract Casino is Pausable {
         require(player2 != address(0), "Player2 should have played");
         require(game.revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
-        
-        uint price = game.price;
-        uint reward = price.mul(2);
+
+        uint reward = game.price.mul(2);
         address winner;
         Move player2Move = game.player2Move;
 
         if (player1Move == getWinningMove(player2Move)) {
             winner = msg.sender;
-            increaseBalance(msg.sender, reward);
-        } else if (player2Move == getWinningMove(player1Move)) {
+        } else {
             winner = player2;
-            increaseBalance(player2, reward);
-        } else {//not sure could happen, at least avoids dead lock for player1
-            winner = address(0);
-            //refund
-            increaseBalance(player2, price);
-            increaseBalance(msg.sender, price);
         }
+        increaseBalance(winner, reward);
 
         emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         //clean
@@ -238,7 +234,7 @@ contract Casino is Pausable {
         require(revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(now > revealTimeout, "Should wait reveal period for rewarding player2");
 
-        //player2 takes all (reward + security deposit)
+        //player2 takes all
         uint reward = game.price.mul(2);
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
