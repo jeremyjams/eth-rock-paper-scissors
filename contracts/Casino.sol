@@ -44,6 +44,7 @@ contract Casino is Pausable {
         Move player2Move;
         // Can hold a special value MIN_TIMEOUT allowing to ensure workflow correctness
         uint revealTimeout;
+        uint pointer;
     }
 
     enum Move {
@@ -130,7 +131,7 @@ contract Casino is Pausable {
 
         Game storage game = games[gameId];
 
-        if(game.isAlreadyUsed == false){
+        if(!game.isAlreadyUsed){
             return State.UNDEFINED;
         }
 
@@ -147,6 +148,10 @@ contract Casino is Pausable {
         }
 
         revert("Game is an weird state");
+    }
+
+    function viewGamesCount() public view returns (uint){
+        return gameIds.length;
     }
 
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
@@ -173,9 +178,10 @@ contract Casino is Pausable {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
-        require(game.isAlreadyUsed == false, "Game already used");
+        require(!game.isAlreadyUsed, "Game already used");
 
         gameIds.push(player1SecretMoveHash);
+        game.pointer = gameIds.length - 1;
         game.isAlreadyUsed = true;
         game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
         game.price = msg.value;
@@ -213,13 +219,7 @@ contract Casino is Pausable {
         } else {
             winner = player2;
         }
-        //Free up space
-        //Can we do best since we must keep game.isAlreadyUsed==true to avoid secret reuse?
-        delete game.price;
-        delete game.player2;
-        delete game.player2Move;
-        delete game.revealTimeout;
-
+        free(gameId);
         increaseBalance(winner, reward);
         emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         return true;
@@ -234,12 +234,7 @@ contract Casino is Pausable {
         require(now > revealTimeout, "Should wait reveal period for rewarding player2");
 
         uint reward = game.price.mul(2);
-        //Free up space
-        delete game.price;
-        delete game.player2;
-        delete game.player2Move;
-        delete game.revealTimeout;
-
+        free(gameId);
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
         return true;
@@ -252,12 +247,7 @@ contract Casino is Pausable {
         require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
 
         uint refund = game.price;
-        //Free up space
-        delete game.price;
-        delete game.player2;
-        delete game.player2Move;
-        delete game.revealTimeout;
-
+        free(gameId);
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
         return true;
@@ -275,6 +265,29 @@ contract Casino is Pausable {
     function increaseBalance(address player, uint amount) private {
         balances[player] = balances[player].add(amount);
         emit IncreasedBalanceEvent(player, amount);
+    }
+
+    /*
+    * Free space when game is over
+    */
+    function free(bytes32 gameId) private {
+        Game storage game = games[gameId];//Is it expensive?
+        //Let's keep gameIds length as small as possible
+        if(gameIds.length == 0){
+            return;
+        }
+        uint relocatedPointer = game.pointer;//relocate last element to a now-free slot
+        bytes32 relocatedId = gameIds[gameIds.length-1];
+        gameIds[relocatedPointer] = relocatedId;
+        games[relocatedId].pointer = relocatedPointer;
+        gameIds.pop(); //remove last element since relocated
+
+        delete game.price;
+        delete game.player2;
+        delete game.player2Move;
+        delete game.revealTimeout;
+        delete game.pointer;
+        //Can we do best since we must keep game.isAlreadyUsed==true to avoid secret reuse?
     }
 
 }
