@@ -23,17 +23,17 @@ contract Casino is Pausable {
     uint constant MIN_TIMEOUT = 1;
     uint constant REVEAL_SECONDS = 1 seconds;
 
-    // gameId -> Game
-    mapping(bytes32 => Game) public games;
     // playerAddress -> balances
     mapping(address => uint) public balances;
+    // gameId -> Game
+    mapping(bytes32 => Game) public games;
     /*
     * Records game IDs.
     * Allows player2 to join any game he wants.
     * Note: It's required to firstly check game is still opened before joining it
     * (by querying games map or watching logs)
     */
-    bytes32[] public openGames;
+    bytes32[] public gameIds;
 
     struct Game {
         bool isAlreadyUsed;
@@ -175,7 +175,7 @@ contract Casino is Pausable {
         Game storage game = games[player1SecretMoveHash];
         require(game.isAlreadyUsed == false, "Game already used");
 
-        openGames.push(player1SecretMoveHash);
+        gameIds.push(player1SecretMoveHash);
         game.isAlreadyUsed = true;
         game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
         game.price = msg.value;
@@ -208,21 +208,20 @@ contract Casino is Pausable {
 
         uint reward = game.price.mul(2);
         address winner;
-        Move player2Move = game.player2Move;
-
-        if (player1Move == getWinningMove(player2Move)) {
+        if (player1Move == getWinningMove(game.player2Move)) {
             winner = msg.sender;
         } else {
             winner = player2;
         }
-        increaseBalance(winner, reward);
+        //Free up space
+        //Can we do best since we must keep game.isAlreadyUsed==true to avoid secret reuse?
+        delete game.price;
+        delete game.player2;
+        delete game.player2Move;
+        delete game.revealTimeout;
 
+        increaseBalance(winner, reward);
         emit RewardWinnerEvent(winner, reward, gameId, player1Move);
-        //clean
-        game.price = 0;
-        game.player2 = address(0);
-        game.player2Move = Move.UNDEFINED;
-        game.revealTimeout = 0;
         return true;
     }
 
@@ -234,15 +233,15 @@ contract Casino is Pausable {
         require(revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(now > revealTimeout, "Should wait reveal period for rewarding player2");
 
-        //player2 takes all
         uint reward = game.price.mul(2);
+        //Free up space
+        delete game.price;
+        delete game.player2;
+        delete game.player2Move;
+        delete game.revealTimeout;
+
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
-        //clean
-        game.price = 0;
-        game.player2 = address(0);
-        game.player2Move = Move.UNDEFINED;
-        game.revealTimeout = 0;
         return true;
     }
 
@@ -253,13 +252,14 @@ contract Casino is Pausable {
         require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
 
         uint refund = game.price;
+        //Free up space
+        delete game.price;
+        delete game.player2;
+        delete game.player2Move;
+        delete game.revealTimeout;
+
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
-        //clean
-        game.price = 0;
-        game.player2 = address(0);
-        game.player2Move = Move.UNDEFINED;
-        game.revealTimeout = 0;
         return true;
     }
 
