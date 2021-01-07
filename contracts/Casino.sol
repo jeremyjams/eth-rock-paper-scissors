@@ -5,21 +5,23 @@ pragma experimental ABIEncoderV2;
 //import "@openzeppelin/contracts/math/SafeMath.sol"
 import "./openzeppelin/SafeMath.sol";
 import "./Pausable.sol";
+import "@openzeppelin/contracts/utils/EnumerableSet.sol";
 
-/*
-* A Casino for playing «rock-paper-scissors» game
-*
-* With Player1 is Alice and Player2 is Bob, standard game flow is:
-*
-* 1 - player1CreateGame(player1SecretMoveHash, {from: alice, value: price.add(player1Deposit)});
-* 2 - player2CommitMove(gameId, PAPER, {from: bob, value: price});
-* 3 - player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
-* 4 - withdrawBalance({from: bob});
-*
-*/
+/**
+ * A Casino for playing «rock-paper-scissors» game
+ *
+ * With Player1 is Alice and Player2 is Bob, standard game flow is:
+ *
+ * 1 - player1CreateGame(player1SecretMoveHash, {from: alice, value: price.add(player1Deposit)});
+ * 2 - player2CommitMove(gameId, PAPER, {from: bob, value: price});
+ * 3 - player1RevealMoveAndReward(gameId, ROCK, secret, {from: alice});
+ * 4 - withdrawBalance({from: bob});
+ *
+ */
 contract Casino is Pausable {
 
     using SafeMath for uint;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
     uint constant MIN_TIMEOUT = 1;
     uint constant REVEAL_SECONDS = 1 seconds;
 
@@ -27,13 +29,13 @@ contract Casino is Pausable {
     mapping(address => uint) public balances;
     // gameId -> Game
     mapping(bytes32 => Game) public games;
-    /*
-    * Records game IDs.
-    * Allows player2 to join any game he wants.
-    * Note: It's required to firstly check game is still opened before joining it
-    * (by querying games map or watching logs)
-    */
-    bytes32[] public gameIds;
+    /**
+     * Records game IDs.
+     * Allows player2 to join any game he wants.
+     * Note: It's required to firstly check game is still opened before joining it
+     * (by querying games map or watching logs)
+     */
+    EnumerableSet.Bytes32Set gameIds;
 
     struct Game {
         bool isAlreadyUsed;
@@ -44,7 +46,6 @@ contract Casino is Pausable {
         Move player2Move;
         // Can hold a special value MIN_TIMEOUT allowing to ensure workflow correctness
         uint revealTimeout;
-        uint pointer;
     }
 
     enum Move {
@@ -126,6 +127,23 @@ contract Casino is Pausable {
         }
     }
 
+    /**
+     * View on-going games count
+     */
+    function viewGamesCount() public view returns (uint){
+        return gameIds.length();
+    }
+
+    /**
+     * Retrieve on-going game IDs by iterating from `0` to `games count`
+     */
+    function viewGameId(uint index) public view returns (bytes32){
+        return gameIds.at(index);
+    }
+
+    /**
+     * View game state
+     */
     function viewGameState(bytes32 gameId) public view returns (State)  {
         require(gameId != 0, "Game ID should not be empty");
 
@@ -150,10 +168,6 @@ contract Casino is Pausable {
         revert("Game is an weird state");
     }
 
-    function viewGamesCount() public view returns (uint){
-        return gameIds.length;
-    }
-
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
         require(player1 != address(0), "Player should not be empty");
         //Added check which is optional since a player1 can forge any unique
@@ -169,19 +183,18 @@ contract Casino is Pausable {
             ));
     }
 
-    /*
-    * Note: A player1 can initiate a free game. In this case there is no
-    * guaranty protecting the player2 if the player1 is uncooperative
-    * (player2 has almost nothing to loose but only tx gas price for playing)
-    */
+    /**
+     * Note: A player1 can initiate a free game. In this case there is no
+     * guaranty protecting the player2 if the player1 is uncooperative
+     * (player2 has almost nothing to loose but only tx gas price for playing)
+     */
     function player1CreateGame(bytes32 player1SecretMoveHash, uint revealPeriod) public payable whenNotPaused returns (bool)  {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
         require(!game.isAlreadyUsed, "Game already used");
 
-        gameIds.push(player1SecretMoveHash);
-        game.pointer = gameIds.length - 1;
+        gameIds.add(player1SecretMoveHash);
         game.isAlreadyUsed = true;
         game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
         game.price = msg.value;
@@ -267,26 +280,18 @@ contract Casino is Pausable {
         emit IncreasedBalanceEvent(player, amount);
     }
 
-    /*
-    * Free space when game is over
-    */
+    /**
+     * Free space when game is over
+     */
     function free(bytes32 gameId) private {
         Game storage game = games[gameId];//Is it expensive?
-        //Let's keep gameIds length as small as possible
-        if(gameIds.length == 0){
-            return;
-        }
-        uint relocatedPointer = game.pointer;//relocate last element to a now-free slot
-        bytes32 relocatedId = gameIds[gameIds.length-1];
-        gameIds[relocatedPointer] = relocatedId;
-        games[relocatedId].pointer = relocatedPointer;
-        gameIds.pop(); //remove last element since relocated
+        //Let's keep gameIds length as clean as possible
+        gameIds.remove(gameId);
 
         delete game.price;
         delete game.player2;
         delete game.player2Move;
         delete game.revealTimeout;
-        delete game.pointer;
         //Can we do best since we must keep game.isAlreadyUsed==true to avoid secret reuse?
     }
 
