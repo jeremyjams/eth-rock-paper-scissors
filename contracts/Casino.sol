@@ -3,9 +3,11 @@ pragma solidity >=0.6.0 <0.8.0;
 pragma experimental ABIEncoderV2;
 
 //import "@openzeppelin/contracts/math/SafeMath.sol"
-import "./openzeppelin/SafeMath.sol";
+import "./openzeppelin/math/SafeMath.sol";
+//import "@openzeppelin/contracts/utils/EnumerableSet.sol"
+import "./openzeppelin/utils/EnumerableSet.sol";
 import "./Pausable.sol";
-import "@openzeppelin/contracts/utils/EnumerableSet.sol";
+
 
 /**
  * A Casino for playing «rock-paper-scissors» game
