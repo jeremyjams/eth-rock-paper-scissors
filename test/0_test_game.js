@@ -19,11 +19,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
     beforeEach("Fresh contract & accounts", async () => {
         casino = await Casino.new(false, {from: david});
-
-        ROCK = await casino.getRock();
-        PAPER = await casino.getPaper();
-        SCISSORS = await casino.getScissors();
-
+        //No idea how to use ROCK, PAPER, SCISSORS without exposing them in the contract
+        // removing`ROCK = await casino.getRock();` using dirty `let Move = Object.freeze({"UNDEFINED":toBN(0) [...]`
         let Move = Object.freeze({"UNDEFINED":toBN(0), "ROCK":toBN(1), "PAPER":toBN(2), "SCISSORS":toBN(3)})
         ROCK = Move.ROCK
         PAPER = Move.PAPER

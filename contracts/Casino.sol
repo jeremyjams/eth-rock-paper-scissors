@@ -105,18 +105,6 @@ contract Casino is Pausable {
     constructor(bool isPaused) public Pausable(isPaused) {
     }
 
-    function getRock() public pure returns (Move)  {
-        return Move.ROCK;
-    }
-
-    function getPaper() public pure returns (Move)  {
-        return Move.PAPER;
-    }
-
-    function getScissors() public pure returns (Move)  {
-        return Move.SCISSORS;
-    }
-
     function getWinningMove(Move move) public pure returns (Move)  {
         if(move == Move.ROCK){
             return Move.PAPER;
