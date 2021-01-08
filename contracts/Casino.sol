@@ -186,7 +186,10 @@ contract Casino is Pausable {
 
         gameIds.add(player1SecretMoveHash);
         game.isAlreadyUsed = true;
-        game.revealTimeout = MIN_TIMEOUT; //trick to save gas storage when game is closed
+        //Setting `MIN_TIMEOUT` here allows to free space at the end of the game
+        // by setting zeros in every fields. All we left at the end of the game
+        // is `game.isAlreadyUsed == true`, everything else is free.
+        game.revealTimeout = MIN_TIMEOUT;
         game.price = msg.value;
         game.player1RevealPeriod = revealPeriod;
         emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, revealPeriod);
@@ -282,7 +285,8 @@ contract Casino is Pausable {
         delete game.player2;
         delete game.player2Move;
         delete game.revealTimeout;
-        //Can we do best since we must keep game.isAlreadyUsed==true to avoid secret reuse?
+        //Everything is clean, we just leave `game.isAlreadyUsed == true`
+        //to avoid secret reuse
     }
 
 }
