@@ -230,6 +230,18 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, player1Move, secret, {from: alice});
             truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { player: bob, amount: price.mul(toBN(2)), gameId: gameId, player1Move: player1Move  });
         });
+
+        it("should reward both when game is a draw", async () => {
+            //createGame & player2CommitMove
+            const player1Move = SCISSORS
+            const player2Move = SCISSORS
+            gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
+            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
+            //reward winner
+            const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(gameId, player1Move, secret, {from: alice});
+            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardBothOnDrawEvent', { sender: alice, amount: price, gameId: gameId, player1Move: player1Move });
+        });
     });
 
     describe("Withdraw", () => {

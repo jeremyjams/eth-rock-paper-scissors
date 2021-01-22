@@ -88,6 +88,12 @@ contract Casino is Pausable {
         bytes32 indexed gameId,
         Move player1Move
     );
+    event RewardBothOnDrawEvent(
+        address indexed sender,
+        uint amount,
+        bytes32 indexed gameId,
+        Move player1Move
+    );
     event CanceledGameEvent(
         address indexed player,
         uint amount,
@@ -105,16 +111,16 @@ contract Casino is Pausable {
     constructor(bool isPaused) public Pausable(isPaused) {
     }
 
-    function getWinningMove(Move move) public pure returns (Move)  {
-        if(move == Move.ROCK){
-            return Move.PAPER;
-        } else if(move == Move.PAPER){
-            return Move.SCISSORS;
-        } else if(move == Move.SCISSORS){
-            return Move.ROCK;
-        } else {
-            return Move.UNDEFINED;
-        }
+    /**
+     * PAPER(2)     -   ROCK(1)     = 1,    left wins
+     * SCISSORS(3)  -   PAPER(2)    = 1,    left wins
+     * ROCK(1)      -   SCISSORS(3) = -2,   left wins
+     *
+     * Note: when game is a draw, left hasn't beat right
+     */
+    function doesLeftBeatRight(Move leftMove, Move rightMove) private pure returns (bool)  {
+        int score = int(leftMove) - int(rightMove);
+        return score == int(1) || score == int(-2);
     }
 
     /**
@@ -218,16 +224,25 @@ contract Casino is Pausable {
         require(game.revealTimeout > MIN_TIMEOUT, "Game is closed");
         require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
 
-        uint reward = game.price.mul(2);
-        address winner;
-        if (player1Move == getWinningMove(game.player2Move)) {
-            winner = msg.sender;
-        } else {
-            winner = player2;
+        Move player2Move = game.player2Move;
+        if(player1Move == player2Move){ //Game is a draw
+            uint price = game.price;
+            increaseBalance(msg.sender, price);
+            increaseBalance(player2, price);
+            emit RewardBothOnDrawEvent(msg.sender, price, gameId, player1Move);
+        } else { //Game has a winner
+            uint reward = game.price.mul(2);
+            address winner;
+            if (player1Move != Move.UNDEFINED &&
+                doesLeftBeatRight(player1Move, player2Move)) {
+                winner = msg.sender;
+            } else {
+                winner = player2;
+            }
+            increaseBalance(winner, reward);
+            emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         }
         free(gameId);
-        increaseBalance(winner, reward);
-        emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         return true;
     }
 
