@@ -25,7 +25,6 @@ contract Casino is Pausable {
     using SafeMath for uint;
     using EnumerableSet for EnumerableSet.Bytes32Set;
     uint constant MIN_TIMEOUT = 1;
-    uint constant REVEAL_SECONDS = 1 seconds;
 
     // playerAddress -> balances
     mapping(address => uint) public balances;
@@ -139,29 +138,30 @@ contract Casino is Pausable {
 
     /**
      * View game state
+     *
+     * Note: This method is only used externally, to help people know what they can do
      */
     function viewGameState(bytes32 gameId) public view returns (State)  {
-        require(gameId != 0, "Game ID should not be empty");
-
         Game storage game = games[gameId];
 
         if(!game.isAlreadyUsed){
             return State.UNDEFINED;
         }
 
-        if(game.player2 == address(0) && game.revealTimeout == MIN_TIMEOUT){
-            return State.WAITING_PLAYER_2_MOVE;
+        uint revealTimeout = game.revealTimeout;
+        if(game.player2 == address(0)){
+            if(revealTimeout == MIN_TIMEOUT){
+                return State.WAITING_PLAYER_2_MOVE;
+            }
+            if(revealTimeout == 0){
+                return State.CLOSED;
+            }
+        } else {
+            if(revealTimeout > MIN_TIMEOUT){
+                return State.WAITING_PLAYER_1_REVEAL;
+            }
         }
-
-        if(game.player2 != address(0) && game.revealTimeout > MIN_TIMEOUT){
-            return State.WAITING_PLAYER_1_REVEAL;
-        }
-
-        if(game.player2 == address(0) && game.revealTimeout == 0){
-            return State.CLOSED;
-        }
-
-        revert("Game is an weird state");
+        assert(false);
     }
 
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
@@ -188,6 +188,10 @@ contract Casino is Pausable {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
+        // We could use game.player1RevealPeriod but not sure we'll keep this field
+        // at the end (reviewers disagree about custom player1RevealPeriod, see all previous comments)
+        // game.price can't be used since could be zero
+        // game.revealTimeout can't be used since will be zero when game is closed
         require(!game.isAlreadyUsed, "Game already used");
 
         gameIds.add(player1SecretMoveHash);
@@ -211,18 +215,23 @@ contract Casino is Pausable {
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
-        uint revealTimeoutDate = now.add(game.player1RevealPeriod.mul(REVEAL_SECONDS));
+        uint revealTimeoutDate = now.add(game.player1RevealPeriod);
         game.revealTimeout = revealTimeoutDate;
         emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
     }
 
-    function player1RevealMoveAndReward(bytes32 gameId, Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool success)  {
+    /**
+     * After reveal period, player2 can declare a player1-runaway, but player1
+     * can still reveal, it is just riskier for him
+     */
+    function player1RevealMoveAndReward(Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool success)  {
+        bytes32 gameId = buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret);
         Game storage game = games[gameId];
+        require(game.isAlreadyUsed, "Failed to retrieve gameId from player1 move and secret");
         address player2 = game.player2;
         require(player2 != address(0), "Player2 should have played");
         require(game.revealTimeout > MIN_TIMEOUT, "Game is closed");
-        require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Failed to decrypt player1 move with player1 secret");
 
         Move player2Move = game.player2Move;
         if(player1Move == player2Move){ //Game is a draw
@@ -261,14 +270,23 @@ contract Casino is Pausable {
         return true;
     }
 
-    function cancelGame(bytes32 gameId, Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool)  {
+    /**
+     * Only player1 can cancel the game
+     */
+    function cancelGame(Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool)  {
+        bytes32 gameId = buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret);
         Game storage game = games[gameId];
-        require(buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret) == gameId, "Only player1 can cancel createGame");
+        require(game.isAlreadyUsed, "Cannot cancel non-existing game");
         require(game.player2 == address(0), "Player2 already player (please reveal instead)");
         require(game.revealTimeout == MIN_TIMEOUT, "Game is closed");
 
         uint refund = game.price;
-        free(gameId);
+        // free
+        gameIds.remove(gameId);
+        delete game.price;
+        delete game.player1RevealPeriod;
+        delete game.revealTimeout;
+
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
         return true;
@@ -292,13 +310,14 @@ contract Casino is Pausable {
      * Free space when game is over
      */
     function free(bytes32 gameId) private {
-        Game storage game = games[gameId];//Is it expensive?
+        Game storage game = games[gameId];
         //Let's keep gameIds length as clean as possible
         gameIds.remove(gameId);
 
         delete game.price;
         delete game.player2;
         delete game.player2Move;
+        delete game.player1RevealPeriod;
         delete game.revealTimeout;
         //Everything is clean, we just leave `game.isAlreadyUsed == true`
         //to avoid secret reuse
