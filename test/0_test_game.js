@@ -54,7 +54,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
                 const gameId = gameIds.get(player1move);
                 await truffleAssert.reverts(
                     casino.buildSecretMoveHashAsGameId('0x0000000000000000000000000000000000000000', player1move, secret),
-                    "Player should not be empty"
+                    "Provided player cannot not be empty"
                 );
             }
         });
@@ -72,7 +72,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
                 const gameId = gameIds.get(player1move);
                 await truffleAssert.reverts(
                     casino.buildSecretMoveHashAsGameId(alice, player1move, '0x'),
-                    "Secret should not be empty"
+                    "Provided secret cannot be empty"
                 );
             }
         });
@@ -117,7 +117,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //re-createGame
             await truffleAssert.reverts(
                 casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price}),
-                "Game already used"
+                "Cannot create already initialized game"
             );
         });
 
@@ -172,7 +172,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //player2CommitMove
             await truffleAssert.reverts(
                 casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
-                "Move cannot be UNDEFINED"
+                "Provided move cannot be empty"
             );
             const gameStateAfter  = await casino.getGameState(gameId);
             assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
@@ -184,7 +184,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //re-player2CommitMove
             await truffleAssert.reverts(
                 casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
-                "Player2 already played"
+                "Cannot commit move twice"
             );
         });
 
@@ -193,7 +193,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //re-player2CommitMove
             await truffleAssert.reverts(
                 casino.player2CommitMove(gameId, PAPER, {from: bob, value: price}),
-                "Player2 already played"
+                "Cannot commit move twice"
             );
         });
 
@@ -201,7 +201,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //player2CommitMove with wrong value
             await truffleAssert.reverts(
                 casino.player2CommitMove(gameId, ROCK, {from: bob, value: price.sub(toBN(1))}),
-                "Value should equal game price"
+                "Provided value should equal game price"
             );
         });
     });
@@ -245,7 +245,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reward twice
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, secret, {from: alice}),
-                "Player2 should have played"
+                "Cannot reveal-reward twice"
             );
         });
 
@@ -256,7 +256,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(SCISSORS, secret, {from: alice}),
-                "Failed to retrieve gameId from player1 move and secret"
+                "Cannot reveal-reward without player2 move"
             );
         });
 
@@ -267,7 +267,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, soliditySha3("b4dp4ssw0rd"), {from: alice}),
-                "Failed to retrieve gameId from player1 move and secret"
+                "Cannot reveal-reward without player2 move"
             );
         });
 
@@ -278,7 +278,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, secret, {from: anyone}),
-                "Failed to retrieve gameId from player1 move and secret"
+                "Cannot reveal-reward without player2 move"
             );
         });
     });
