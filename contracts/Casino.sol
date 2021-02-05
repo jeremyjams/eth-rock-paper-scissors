@@ -37,13 +37,17 @@ contract Casino is Pausable {
      */
     EnumerableSet.Bytes32Set gameIds;
 
+    /**
+     * In order to save storage, a dirty merge is made around reveal date fields.
+     * To do it, the 'initializedWithRevealPeriodOrTimeout' is:
+     * - before player2 commit: 'reveal period' (in seconds)
+     * - after player2 commit: 'reveal timeout' (a date)
+     */
     struct Game {
         uint price;
-        // in seconds
-        uint initializedWithRevealPeriod;
+        uint initializedWithRevealPeriodOrTimeout;
         address player2;
         Move player2Move;
-        uint revealTimeout;
     }
 
     enum Move {
@@ -140,7 +144,7 @@ contract Casino is Pausable {
     function getGameState(bytes32 gameId) public view returns (State)  {
         Game storage game = games[gameId];
 
-        if(game.initializedWithRevealPeriod == 0){
+        if(game.initializedWithRevealPeriodOrTimeout == 0){
             return State.UNDEFINED;
         }
 
@@ -183,10 +187,10 @@ contract Casino is Pausable {
         require(revealPeriod > 0, "Provided revealPeriod cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
-        require(game.initializedWithRevealPeriod == 0, "Cannot create already initialized game");
+        require(game.initializedWithRevealPeriodOrTimeout == 0, "Cannot create already initialized game");
 
         gameIds.add(player1SecretMoveHash);
-        game.initializedWithRevealPeriod = revealPeriod;
+        game.initializedWithRevealPeriodOrTimeout = revealPeriod;
         game.price = msg.value;
         emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, revealPeriod);
         return true;
@@ -195,7 +199,7 @@ contract Casino is Pausable {
     function player2CommitMove(bytes32 gameId, Move player2Move) public payable whenNotPaused returns (bool)  {
         require(player2Move != Move.UNDEFINED, "Provided move cannot be empty");
         Game storage game = games[gameId];
-        uint initializedWithRevealPeriod = game.initializedWithRevealPeriod;
+        uint initializedWithRevealPeriod = game.initializedWithRevealPeriodOrTimeout;
         require(initializedWithRevealPeriod != 0, "Cannot commit on non-initialized game");
         require(game.player2Move == Move.UNDEFINED && game.player2 == address(0), "Cannot commit move twice");
         require(msg.value == game.price, "Provided value should equal game price");
@@ -203,7 +207,7 @@ contract Casino is Pausable {
         game.player2 = msg.sender;
         game.player2Move = player2Move;
         uint revealTimeoutDate = now.add(initializedWithRevealPeriod);
-        game.revealTimeout = revealTimeoutDate;
+        game.initializedWithRevealPeriodOrTimeout = revealTimeoutDate;
         emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
         return true;
     }
@@ -247,8 +251,7 @@ contract Casino is Pausable {
         require(player2Move != Move.UNDEFINED, "Cannot runaway-reward without player2 move");
         address player2 = game.player2;
         require(player2 != address(0), "Cannot runaway-reward twice");
-        uint revealTimeout = game.revealTimeout;
-        require(now > revealTimeout, "Cannot runaway-reward before reveal tiemout");
+        require(now > game.initializedWithRevealPeriodOrTimeout, "Cannot runaway-reward before reveal timeout");
 
         uint reward = game.price.mul(2);
         free(gameId);
@@ -263,14 +266,13 @@ contract Casino is Pausable {
     function cancelGame(Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool)  {
         bytes32 gameId = buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret);
         Game storage game = games[gameId];
-        require(game.initializedWithRevealPeriod != 0, "Cannot cancel non-initialized game");
+        require(game.initializedWithRevealPeriodOrTimeout != 0, "Cannot cancel non-initialized game");
         require(game.player2Move == Move.UNDEFINED, "Cannot cancel game since player2 already played");
 
         uint refund = game.price;
         // free
         gameIds.remove(gameId);
         delete game.price;
-        delete game.revealTimeout;
 
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
@@ -301,8 +303,7 @@ contract Casino is Pausable {
 
         delete game.price;
         delete game.player2;
-        delete game.revealTimeout;
-        //Everything is clean, we just leave `game.player1RevealPeriod`
+        //Everything is clean, we just leave `game.initializedWithRevealPeriodOrTimeout`
         // & `game.player2move` to avoid secret reuse
     }
 
