@@ -54,7 +54,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
                 const gameId = gameIds.get(player1move);
                 await truffleAssert.reverts(
                     casino.buildSecretMoveHashAsGameId('0x0000000000000000000000000000000000000000', player1move, secret),
-                    "Provided player cannot not be empty"
+                    "Provided player cannot be empty"
                 );
             }
         });
