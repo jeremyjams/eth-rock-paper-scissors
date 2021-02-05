@@ -118,8 +118,7 @@ contract Casino is Pausable {
      * Note: when game is a draw, left hasn't beat right
      */
     function doesLeftBeatRight(Move leftMove, Move rightMove) private pure returns (bool)  {
-        int score = int(leftMove) - int(rightMove);
-        return score == int(1) || score == int(-2);
+        return (int(leftMove) - int(rightMove) + 3) % 3 == 1;
     }
 
     /**
@@ -132,7 +131,7 @@ contract Casino is Pausable {
     /**
      * Retrieve on-going game IDs by iterating from `0` to `games count`
      */
-    function viewGameId(uint index) public view returns (bytes32){
+    function getGameId(uint index) public view returns (bytes32){
         return gameIds.at(index);
     }
 
@@ -141,7 +140,7 @@ contract Casino is Pausable {
      *
      * Note: This method is only used externally, to help people know what they can do
      */
-    function viewGameState(bytes32 gameId) public view returns (State)  {
+    function getGameState(bytes32 gameId) public view returns (State)  {
         Game storage game = games[gameId];
 
         if(!game.isAlreadyUsed){
@@ -224,6 +223,7 @@ contract Casino is Pausable {
     /**
      * After reveal period, player2 can declare a player1-runaway, but player1
      * can still reveal, it is just riskier for him
+     * Note: Player1 with an UNDEFINED move won't be able to reveal
      */
     function player1RevealMoveAndReward(Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool success)  {
         bytes32 gameId = buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret);
@@ -242,8 +242,7 @@ contract Casino is Pausable {
         } else { //Game has a winner
             uint reward = game.price.mul(2);
             address winner;
-            if (player1Move != Move.UNDEFINED &&
-                doesLeftBeatRight(player1Move, player2Move)) {
+            if (doesLeftBeatRight(player1Move, player2Move)) {
                 winner = msg.sender;
             } else {
                 winner = player2;
