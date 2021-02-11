@@ -245,7 +245,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             //try to reward twice
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, secret, {from: alice}),
-                "Cannot reveal-reward twice"
+                "Cannot reveal-reward without player2 move"
             );
         });
 

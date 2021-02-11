@@ -148,22 +148,22 @@ contract Casino is Pausable {
     function getGameState(bytes32 gameId) public view returns (State)  {
         Game storage game = games[gameId];
 
+        //movePeriod:0 & price:0 & move:0
         if(game.movePeriod == 0){
             return State.UNDEFINED;
         }
 
-        if(game.player2 == address(0)){
+        if(game.price > 0){
             if(game.player2Move == Move.UNDEFINED){
-                //player:0 & move:0
+                //movePeriod:1 & price:1 & move:0
                 return State.WAITING_PLAYER_2_MOVE;
+            } else {
+                //movePeriod:1 & price:1 & move:1
+                return State.WAITING_PLAYER_1_REVEAL;
             }
-            //player:0 & move:1
-            return State.CLOSED;
         }
-        //player:1 & move:1
-        return State.WAITING_PLAYER_1_REVEAL;
-
-        //player:1 & move:0 cannot happen
+        //movePeriod:1 & price:0 & move:0
+        return State.CLOSED;
     }
 
     function buildSecretMoveHashAsGameId(address player1, Move move, bytes32 secret) public view returns (bytes32)  {
@@ -182,9 +182,7 @@ contract Casino is Pausable {
     }
 
     /**
-     * Note: A player1 can initiate a free game. In this case there is no
-     * guaranty protecting the player2 if the player1 is uncooperative
-     * (player2 has almost nothing to loose but only tx gas price for playing)
+     * Note: A player1 cannot initiate a free game.
      */
     function player1CreateGame(bytes32 player1SecretMoveHash, uint32 movePeriod) public payable whenNotPaused returns (bool)  {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
@@ -192,6 +190,7 @@ contract Casino is Pausable {
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
         require(game.movePeriod == 0, "Cannot create already initialized game");
+        require(msg.value > 0, "Cannot create game with empty bet");
 
         gameIds.add(player1SecretMoveHash);
         game.price = msg.value;
@@ -206,8 +205,10 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         uint movePeriod = game.movePeriod;
         require(movePeriod > 0, "Cannot commit on non-initialized game");
-        require(game.player2Move == Move.UNDEFINED && game.player2 == address(0), "Cannot commit move twice");
-        require(msg.value == game.price, "Provided value should equal game price");
+        uint price = game.price;
+        require(price > 0, "Cannot commit on closed game");
+        require(game.player2Move == Move.UNDEFINED, "Cannot commit move twice");
+        require(msg.value == price, "Provided value should equal game price");
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
@@ -227,13 +228,11 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         Move player2Move = game.player2Move;
         require(player2Move != Move.UNDEFINED, "Cannot reveal-reward without player2 move");
-        address player2 = game.player2;
-        require(player2 != address(0), "Cannot reveal-reward twice");
 
         if(player1Move == player2Move){ //Game is a draw
             uint price = game.price;
             increaseBalance(msg.sender, price);
-            increaseBalance(player2, price);
+            increaseBalance(game.player2, price);
             emit RewardBothOnDrawEvent(msg.sender, price, gameId, player1Move);
         } else { //Game has a winner
             uint reward = game.price.mul(2);
@@ -241,7 +240,7 @@ contract Casino is Pausable {
             if (doesLeftBeatRight(player1Move, player2Move)) {
                 winner = msg.sender;
             } else {
-                winner = player2;
+                winner = game.player2;
             }
             increaseBalance(winner, reward);
             emit RewardWinnerEvent(winner, reward, gameId, player1Move);
@@ -254,12 +253,11 @@ contract Casino is Pausable {
         Game storage game = games[gameId];
         Move player2Move = game.player2Move;
         require(player2Move != Move.UNDEFINED, "Cannot runaway-reward without player2 move");
-        address player2 = game.player2;
-        require(player2 != address(0), "Cannot runaway-reward twice");
         require(now > game.nextTimeout, "Cannot runaway-reward before next timeout");
 
         uint reward = game.price.mul(2);
         free(gameId);
+        address player2 = game.player2;
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
         return true;
@@ -309,10 +307,10 @@ contract Casino is Pausable {
         gameIds.remove(gameId);
 
         delete game.price;
-        delete game.player2;
         delete game.nextTimeout;
-        //Everything is clean, we just leave `game.initializedWithRevealPeriodOrTimeout`
-        // & `game.player2move` to avoid secret reuse
+        delete game.player2;
+        delete game.player2Move;
+        //Everything is clean, we just leave `game.movePeriod`
     }
 
 }
