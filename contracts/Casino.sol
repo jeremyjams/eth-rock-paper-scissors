@@ -68,6 +68,12 @@ contract Casino is Pausable {
         CLOSED
     }
 
+    enum Player1Score {
+        DRAW,
+        WIN,
+        LOSE
+    }
+
     event CreateGameEvent(
         address indexed player,
         uint amount,
@@ -116,14 +122,24 @@ contract Casino is Pausable {
     }
 
     /**
-     * PAPER(2)     -   ROCK(1)     = 1,    left wins
-     * SCISSORS(3)  -   PAPER(2)    = 1,    left wins
-     * ROCK(1)      -   SCISSORS(3) = -2,   left wins
+     * Draw
+     * PAPER(2)     -   PAPER(2)    = 0,
+     * [...]                        = 0
+     * [...]                        = 0
      *
-     * Note: when game is a draw, left hasn't beat right
+     * Player1 wins
+     * PAPER(2)     -   ROCK(1)     = 1
+     * SCISSORS(3)  -   PAPER(2)    = 1
+     * ROCK(1)      -   SCISSORS(3) = -2
+     *
+     * Player1 loses
+     * ROCK(1)      -   PAPER(2)    = -1
+     * [...]                        = -1
+     * [...]                        = 2
+     *
      */
-    function doesLeftBeatRight(Move leftMove, Move rightMove) private pure returns (bool)  {
-        return (int(leftMove) - int(rightMove) + 3) % 3 == 1;
+    function getPlayer1Score(Move player1Move, Move player2Move) private pure returns (Player1Score)  {
+        return Player1Score((uint(player1Move) - uint(player2Move) + 3) % 3);
     }
 
     /**
@@ -229,7 +245,8 @@ contract Casino is Pausable {
         Move player2Move = game.player2Move;
         require(player2Move != Move.UNDEFINED, "Cannot reveal-reward without player2 move");
 
-        if(player1Move == player2Move){ //Game is a draw
+        Player1Score score = getPlayer1Score(player1Move, player2Move);
+        if(score == Player1Score.DRAW){
             uint price = game.price;
             increaseBalance(msg.sender, price);
             increaseBalance(game.player2, price);
@@ -237,7 +254,7 @@ contract Casino is Pausable {
         } else { //Game has a winner
             uint reward = game.price.mul(2);
             address winner;
-            if (doesLeftBeatRight(player1Move, player2Move)) {
+            if (score == Player1Score.WIN) {
                 winner = msg.sender;
             } else {
                 winner = game.player2;
