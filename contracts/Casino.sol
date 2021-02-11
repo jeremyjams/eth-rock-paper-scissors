@@ -38,14 +38,18 @@ contract Casino is Pausable {
     EnumerableSet.Bytes32Set gameIds;
 
     /**
-     * In order to save storage, a dirty merge is made around reveal date fields.
-     * To do it, the 'initializedWithRevealPeriodOrTimeout' is:
-     * - before player2 commit: 'reveal period' (in seconds)
-     * - after player2 commit: 'reveal timeout' (a date)
+     * movePeriod: safe period in seconds between opponent moves. Within this period
+     * it protects player2 against:
+     * (1) cancel-game front-running from player1
+     * (2) unrevealing sore-loser player1
+     *
+     * movePeriod: up-to ~1 century between 2 moves is enough with uint32
+     * (uint16 ~18 hours doesn't sound enough)
      */
     struct Game {
         uint price;
-        uint initializedWithRevealPeriodOrTimeout;
+        uint32 movePeriod;
+        uint nextTimeout;
         address player2;
         Move player2Move;
     }
@@ -144,7 +148,7 @@ contract Casino is Pausable {
     function getGameState(bytes32 gameId) public view returns (State)  {
         Game storage game = games[gameId];
 
-        if(game.initializedWithRevealPeriodOrTimeout == 0){
+        if(game.movePeriod == 0){
             return State.UNDEFINED;
         }
 
@@ -182,33 +186,34 @@ contract Casino is Pausable {
      * guaranty protecting the player2 if the player1 is uncooperative
      * (player2 has almost nothing to loose but only tx gas price for playing)
      */
-    function player1CreateGame(bytes32 player1SecretMoveHash, uint revealPeriod) public payable whenNotPaused returns (bool)  {
+    function player1CreateGame(bytes32 player1SecretMoveHash, uint32 movePeriod) public payable whenNotPaused returns (bool)  {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
-        require(revealPeriod > 0, "Provided revealPeriod cannot be empty");
+        require(movePeriod > 0, "Provided movePeriod cannot be empty");
         // player1SecretMoveHash is gameId
         Game storage game = games[player1SecretMoveHash];
-        require(game.initializedWithRevealPeriodOrTimeout == 0, "Cannot create already initialized game");
+        require(game.movePeriod == 0, "Cannot create already initialized game");
 
         gameIds.add(player1SecretMoveHash);
-        game.initializedWithRevealPeriodOrTimeout = revealPeriod;
         game.price = msg.value;
-        emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, revealPeriod);
+        game.movePeriod = movePeriod;
+        game.nextTimeout = now.add(movePeriod);
+        emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, movePeriod);
         return true;
     }
 
     function player2CommitMove(bytes32 gameId, Move player2Move) public payable whenNotPaused returns (bool)  {
         require(player2Move != Move.UNDEFINED, "Provided move cannot be empty");
         Game storage game = games[gameId];
-        uint initializedWithRevealPeriod = game.initializedWithRevealPeriodOrTimeout;
-        require(initializedWithRevealPeriod != 0, "Cannot commit on non-initialized game");
+        uint movePeriod = game.movePeriod;
+        require(movePeriod > 0, "Cannot commit on non-initialized game");
         require(game.player2Move == Move.UNDEFINED && game.player2 == address(0), "Cannot commit move twice");
         require(msg.value == game.price, "Provided value should equal game price");
 
         game.player2 = msg.sender;
         game.player2Move = player2Move;
-        uint revealTimeoutDate = now.add(initializedWithRevealPeriod);
-        game.initializedWithRevealPeriodOrTimeout = revealTimeoutDate;
-        emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, revealTimeoutDate);
+        uint nextTimeout = now.add(movePeriod);
+        game.nextTimeout = nextTimeout;
+        emit Player2MoveEvent(msg.sender, msg.value, gameId, player2Move, nextTimeout);
         return true;
     }
 
@@ -251,7 +256,7 @@ contract Casino is Pausable {
         require(player2Move != Move.UNDEFINED, "Cannot runaway-reward without player2 move");
         address player2 = game.player2;
         require(player2 != address(0), "Cannot runaway-reward twice");
-        require(now > game.initializedWithRevealPeriodOrTimeout, "Cannot runaway-reward before reveal timeout");
+        require(now > game.nextTimeout, "Cannot runaway-reward before next timeout");
 
         uint reward = game.price.mul(2);
         free(gameId);
@@ -266,13 +271,15 @@ contract Casino is Pausable {
     function cancelGame(Move player1Move, bytes32 player1Secret) public whenNotPaused returns (bool)  {
         bytes32 gameId = buildSecretMoveHashAsGameId(msg.sender, player1Move, player1Secret);
         Game storage game = games[gameId];
-        require(game.initializedWithRevealPeriodOrTimeout != 0, "Cannot cancel non-initialized game");
+        require(game.movePeriod > 0, "Cannot cancel non-initialized game");
         require(game.player2Move == Move.UNDEFINED, "Cannot cancel game since player2 already played");
+        require(now > game.nextTimeout, "Cannot cancel game before next timeout");
 
         uint refund = game.price;
         // free
         gameIds.remove(gameId);
         delete game.price;
+        delete game.nextTimeout;
 
         increaseBalance(msg.sender, refund);
         emit CanceledGameEvent(msg.sender, refund, gameId);
@@ -303,6 +310,7 @@ contract Casino is Pausable {
 
         delete game.price;
         delete game.player2;
+        delete game.nextTimeout;
         //Everything is clean, we just leave `game.initializedWithRevealPeriodOrTimeout`
         // & `game.player2move` to avoid secret reuse
     }
