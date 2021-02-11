@@ -20,38 +20,45 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
     const secret = soliditySha3("p4ssw0rd") //take random source instead
     let casino
-    let gameIds = new Map()
+    let rockGameId, paperGameId, scissorsGameId, gameIds;
 
     beforeEach("Fresh contract & accounts", async () => {
         casino = await Casino.new(false, {from: david});
-        for (const player1move of moves) {
-            const gameId = await casino.buildSecretMoveHashAsGameId(alice, player1move, secret)
-            gameIds.set(player1move, gameId)
-        }
+        rockGameId = await casino.buildSecretMoveHashAsGameId(alice, ROCK, secret)
+        paperGameId = await casino.buildSecretMoveHashAsGameId(alice, PAPER, secret)
+        scissorsGameId = await casino.buildSecretMoveHashAsGameId(alice, SCISSORS, secret)
+        gameIds = [ rockGameId, paperGameId, scissorsGameId ]
     });
 
     describe("Check initial state", () => {
         it("should have proper initial state", async () => {
-            for (const player1move of moves) {
-                const gameId = gameIds.get(player1move);
-                const gameStateBefore  = await casino.getGameState(gameId);
-                assert.strictEqual(gameStateBefore.toString(10), State.UNDEFINED.toString(10), "Game should be UNDEFINED with " + player1move);
-            }
+            //ROCK
+            const rockGameStateBefore  = await casino.getGameState(rockGameId);
+            assert.strictEqual(rockGameStateBefore.toString(10), State.UNDEFINED.toString(10), "Game should be UNDEFINED with ROCK");
+            //PAPER
+            const paperGameStateBefore  = await casino.getGameState(paperGameId);
+            assert.strictEqual(paperGameStateBefore.toString(10), State.UNDEFINED.toString(10), "Game should be UNDEFINED with PAPER");
+            //SCISSORS
+            const scissorsGameStateBefore  = await casino.getGameState(scissorsGameId);
+            assert.strictEqual(scissorsGameStateBefore.toString(10), State.UNDEFINED.toString(10), "Game should be UNDEFINED with SCISSORS");
         });
     });
 
     describe("Build secret move hash", () => {
         it("should build secret move hash", async () => {
-            for (const player1move of moves) {
-                const gameId = gameIds.get(player1move);
-                const secretMoveHash = soliditySha3(casino.address, alice, player1move, secret)
-                assert.strictEqual(secretMoveHash, gameId, "Generated secretMoveHash should be equal to gameId with " + player1move);
-            }
+            //ROCK
+            const rockSecretMoveHash = soliditySha3(casino.address, alice, ROCK, secret)
+            assert.strictEqual(rockSecretMoveHash, rockGameId, "Generated secretMoveHash should be equal to gameId with ROCK");
+            //PAPER
+            const paperSecretMoveHash = soliditySha3(casino.address, alice, PAPER, secret)
+            assert.strictEqual(paperSecretMoveHash, paperGameId, "Generated secretMoveHash should be equal to gameId with PAPER");
+            //SCISSORS
+            const scissorsSecretMoveHash = soliditySha3(casino.address, alice, SCISSORS, secret)
+            assert.strictEqual(scissorsSecretMoveHash, scissorsGameId, "Generated secretMoveHash should be equal to gameId with SCISSORS");
         });
 
         it("should not build secret move hash since empty player", async () => {
             for (const player1move of moves) {
-                const gameId = gameIds.get(player1move);
                 await truffleAssert.reverts(
                     casino.buildSecretMoveHashAsGameId('0x0000000000000000000000000000000000000000', player1move, secret),
                     "Provided player cannot be empty"
@@ -69,7 +76,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not build secret move hash since empty secret", async () => {
             for (const player1move of moves) {
-                const gameId = gameIds.get(player1move);
                 await truffleAssert.reverts(
                     casino.buildSecretMoveHashAsGameId(alice, player1move, '0x'),
                     "Provided secret cannot be empty"
@@ -79,28 +85,22 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     });
 
     describe("Player1 will create game", () => {
-        it("should createGame with ROCK", async () => {
-            const gameId = gameIds.get(ROCK);
-            const createGameReceipt = await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, revealPeriod: revealPeriod });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
-        });
-
-        it("should createGame with PAPER", async () => {
-            const gameId = gameIds.get(PAPER);
-            const createGameReceipt = await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, revealPeriod: revealPeriod });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
-        });
-
-        it("should createGame with SCISSORS", async () => {
-            const gameId = gameIds.get(SCISSORS);
-            const createGameReceipt = await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            truffleAssert.eventEmitted(createGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: gameId, revealPeriod: revealPeriod });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
+        it("should createGame with ROCK, PAPER & SCISSORS", async () => {
+            //ROCK
+            const rockCreateGameReceipt = await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            truffleAssert.eventEmitted(rockCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: rockGameId, revealPeriod: revealPeriod });
+            const rockGameStateAfter  = await casino.getGameState(rockGameId);
+            assert.strictEqual(rockGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with ROCK");
+            //PAPER
+            const paperCreateGameReceipt = await casino.player1CreateGame(paperGameId, revealPeriod, {from: alice, value: price});
+            truffleAssert.eventEmitted(paperCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: paperGameId, revealPeriod: revealPeriod });
+            const paperGameStateAfter  = await casino.getGameState(paperGameId);
+            assert.strictEqual(paperGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with PAPER");
+            //SCISSORS
+            const scissorsCreateGameReceipt = await casino.player1CreateGame(scissorsGameId, revealPeriod, {from: alice, value: price});
+            truffleAssert.eventEmitted(scissorsCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: scissorsGameId, revealPeriod: revealPeriod });
+            const scissorsGameStateAfter  = await casino.getGameState(scissorsGameId);
+            assert.strictEqual(scissorsGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with SCISSORS");
         });
 
         it("should not createGame since empty secretMoveHash", async () => {
@@ -111,114 +111,125 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not createGame twice or reuse secret", async () => {
-            const gameId = gameIds.get(ROCK);
-            //createGame
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            //re-createGame
-            await truffleAssert.reverts(
-                casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price}),
-                "Cannot create already initialized game"
-            );
+            for (const gameId of gameIds) {
+                //createGame
+                await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+                //re-createGame
+                await truffleAssert.reverts(
+                    casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price}),
+                    "Cannot create already initialized game"
+                );
+            }
         });
 
     });
 
     describe("Player2 will commit move after player1", () => {
-        let gameId;
 
-        beforeEach("create game", async () => {
-            gameId = gameIds.get(ROCK);
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+        beforeEach("create games", async () => {
+            for (const gameId of gameIds) {
+                await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            }
         });
 
         it("should player2CommitMove ROCK", async () => {
-            const player2move = ROCK
-            //player2CommitMove
-            const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
-            truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
-            const game = await casino.games(gameId);
-            assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
-            assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            for (const gameId of gameIds) {
+                const player2move = ROCK
+                //player2CommitMove
+                const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
+                truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
+                const gameStateAfter  = await casino.getGameState(gameId);
+                assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
+                const game = await casino.games(gameId);
+                assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
+                assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            }
         });
 
         it("should player2CommitMove PAPER", async () => {
-            const player2move = PAPER
-            //player2CommitMove
-            const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
-            truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
-            const game = await casino.games(gameId);
-            assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
-            assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            for (const gameId of gameIds) {
+                const player2move = PAPER
+                //player2CommitMove
+                const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
+                truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
+                const gameStateAfter  = await casino.getGameState(gameId);
+                assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
+                const game = await casino.games(gameId);
+                assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
+                assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            }
         });
 
         it("should player2CommitMove SCISSORS", async () => {
-            const player2move = SCISSORS
-            //player2CommitMove
-            const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
-            truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
-            const game = await casino.games(gameId);
-            assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
-            assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            for (const gameId of gameIds) {
+                const player2move = SCISSORS
+                //player2CommitMove
+                const player2CommitMoveReceipt = await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
+                truffleAssert.eventEmitted(player2CommitMoveReceipt, 'Player2MoveEvent', { player: bob, amount: price, gameId: gameId, move: player2move });
+                const gameStateAfter  = await casino.getGameState(gameId);
+                assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_1_REVEAL.toString(10), "Game should be WAITING_PLAYER_1_REVEAL");
+                const game = await casino.games(gameId);
+                assert.strictEqual(game.player2.toString(10), bob, "Player2 should be Bob");
+                assert.strictEqual(game.player2Move.toString(10), player2move.toString(10), "Move should be " + player2move);
+            }
         });
 
         it("should not player2CommitMove UNDEFINED", async () => {
-            const player2move = UNDEFINED
-            //player2CommitMove
-            await truffleAssert.reverts(
-                casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
-                "Provided move cannot be empty"
-            );
-            const gameStateAfter  = await casino.getGameState(gameId);
-            assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
+            for (const gameId of gameIds) {
+                const player2move = UNDEFINED
+                //player2CommitMove
+                await truffleAssert.reverts(
+                    casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
+                    "Provided move cannot be empty"
+                );
+                const gameStateAfter  = await casino.getGameState(gameId);
+                assert.strictEqual(gameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE");
+            }
         });
 
         it("should not player2CommitMove twice", async () => {
-            const player2move = ROCK
-            await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
-            //re-player2CommitMove
-            await truffleAssert.reverts(
-                casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
-                "Cannot commit move twice"
-            );
+            for (const gameId of gameIds) {
+                const player2move = ROCK
+                await casino.player2CommitMove(gameId, player2move, {from: bob, value: price});
+                //re-player2CommitMove
+                await truffleAssert.reverts(
+                    casino.player2CommitMove(gameId, player2move, {from: bob, value: price}),
+                    "Cannot commit move twice"
+                );
+            }
         });
 
         it("should not player2CommitMove twice, even with other move", async () => {
-            await casino.player2CommitMove(gameId, ROCK, {from: bob, value: price});
-            //re-player2CommitMove
-            await truffleAssert.reverts(
-                casino.player2CommitMove(gameId, PAPER, {from: bob, value: price}),
-                "Cannot commit move twice"
-            );
+            for (const gameId of gameIds) {
+                await casino.player2CommitMove(gameId, ROCK, {from: bob, value: price});
+                //re-player2CommitMove
+                await truffleAssert.reverts(
+                    casino.player2CommitMove(gameId, PAPER, {from: bob, value: price}),
+                    "Cannot commit move twice"
+                );
+            }
         });
 
         it("should not player2CommitMove since value does not match game price", async () => {
-            //player2CommitMove with wrong value
-            await truffleAssert.reverts(
-                casino.player2CommitMove(gameId, ROCK, {from: bob, value: price.sub(toBN(1))}),
-                "Provided value should equal game price"
-            );
+            for (const gameId of gameIds) {
+                //player2CommitMove with wrong value
+                await truffleAssert.reverts(
+                    casino.player2CommitMove(gameId, ROCK, {from: bob, value: price.sub(toBN(1))}),
+                    "Provided value should equal game price"
+                );
+            }
         });
     });
 
     describe("Player1 will reveal & reward winner", () => {
-        let gameId, player1move
 
-        beforeEach("prepare game ID", async () => {
-            player1move = ROCK
-            gameId = gameIds.get(player1move);
+        beforeEach("create games", async () => {
+            //createGame & player2CommitMove
+            await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            await casino.player2CommitMove(rockGameId, PAPER, {from: bob, value: price});
         });
 
         it("should player1 reveal & reward winner with right reward amount", async () => {
-            //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
-
             // check balance before reward
             const alicePastBalances = await casino.balances(alice);
             assert.strictEqual(alicePastBalances.toString(10), '0', "Alice should not have any balance");
@@ -227,8 +238,8 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const reward = price.mul(toBN(2))
             //reveal & reward
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(ROCK, secret, {from: alice});
-            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { player: bob, amount: reward, gameId: gameId, player1Move: ROCK });
-            const gameStateAfter  = await casino.getGameState(gameId);
+            truffleAssert.eventEmitted(rewardWinnerReceipt, 'RewardWinnerEvent', { player: bob, amount: reward, gameId: rockGameId, player1Move: ROCK });
+            const gameStateAfter  = await casino.getGameState(rockGameId);
             assert.strictEqual(gameStateAfter.toString(10), State.CLOSED.toString(10), "Game should be CLOSED");
             //check reward
             const aliceBalances = await casino.balances(alice);
@@ -238,9 +249,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not reward twice", async () => {
-            //createGame & player2CommitMove & reveal & reward
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(ROCK, secret, {from: alice});
             //try to reward twice
             await truffleAssert.reverts(
@@ -250,9 +258,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not reveal since wrong move", async () => {
-            //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(SCISSORS, secret, {from: alice}),
@@ -261,9 +266,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not reveal since wrong secret", async () => {
-            //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, soliditySha3("b4dp4ssw0rd"), {from: alice}),
@@ -272,9 +274,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not reveal since wrong sender", async () => {
-            //createGame & player2CommitMove
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             //try to reveal with wrong move
             await truffleAssert.reverts(
                 casino.player1RevealMoveAndReward(ROCK, secret, {from: anyone}),
@@ -413,16 +412,13 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     });
 
     describe("Withdraw", () => {
-        let gameId;
 
-        beforeEach("prepare game ID", async () => {
-            gameId = gameIds.get(ROCK);
+        beforeEach("createGame & player2 commit move", async () => {
+            await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            await casino.player2CommitMove(rockGameId, PAPER, {from: bob, value: price});
         });
 
         it("should withdraw balance", async () => {
-            //createGame, player2CommitMove & reward
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(ROCK, secret, {from: alice});
 
             const balanceBefore = await web3.eth.getBalance(bob);
@@ -443,9 +439,6 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
 
         it("should not withdraw balance since empty balance", async () => {
-            //createGame, player2CommitMove & reward
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
-            await casino.player2CommitMove(gameId, PAPER, {from: bob, value: price});
             await casino.player1RevealMoveAndReward(ROCK, secret, {from: alice});
 
             // withdraw
