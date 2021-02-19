@@ -87,17 +87,17 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Player1 will create game", () => {
         it("should createGame with ROCK, PAPER & SCISSORS", async () => {
             //ROCK
-            const rockCreateGameReceipt = await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            const rockCreateGameReceipt = await casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price});
             truffleAssert.eventEmitted(rockCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: rockGameId, revealPeriod: revealPeriod });
             const rockGameStateAfter  = await casino.getGameState(rockGameId);
             assert.strictEqual(rockGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with ROCK");
             //PAPER
-            const paperCreateGameReceipt = await casino.player1CreateGame(paperGameId, revealPeriod, {from: alice, value: price});
+            const paperCreateGameReceipt = await casino.player1CreateGame(paperGameId, revealPeriod, bob, {from: alice, value: price});
             truffleAssert.eventEmitted(paperCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: paperGameId, revealPeriod: revealPeriod });
             const paperGameStateAfter  = await casino.getGameState(paperGameId);
             assert.strictEqual(paperGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with PAPER");
             //SCISSORS
-            const scissorsCreateGameReceipt = await casino.player1CreateGame(scissorsGameId, revealPeriod, {from: alice, value: price});
+            const scissorsCreateGameReceipt = await casino.player1CreateGame(scissorsGameId, revealPeriod, bob, {from: alice, value: price});
             truffleAssert.eventEmitted(scissorsCreateGameReceipt, 'CreateGameEvent', { player: alice, amount: price, gameId: scissorsGameId, revealPeriod: revealPeriod });
             const scissorsGameStateAfter  = await casino.getGameState(scissorsGameId);
             assert.strictEqual(scissorsGameStateAfter.toString(10), State.WAITING_PLAYER_2_MOVE.toString(10), "Game should be WAITING_PLAYER_2_MOVE with SCISSORS");
@@ -105,7 +105,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         it("should not createGame since empty secretMoveHash", async () => {
             await truffleAssert.reverts(
-                casino.player1CreateGame('0x', revealPeriod, {from: alice, value: price}),
+                casino.player1CreateGame('0x', revealPeriod, bob, {from: alice, value: price}),
                 "Provided player1SecretMoveHash cannot be empty"
             );
         });
@@ -113,10 +113,10 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         it("should not createGame twice or reuse secret", async () => {
             for (const gameId of gameIds) {
                 //createGame
-                await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+                await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
                 //re-createGame
                 await truffleAssert.reverts(
-                    casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price}),
+                    casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price}),
                     "Cannot create already initialized game"
                 );
             }
@@ -128,7 +128,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         beforeEach("create games", async () => {
             for (const gameId of gameIds) {
-                await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+                await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             }
         });
 
@@ -187,6 +187,15 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             }
         });
 
+        it("should not player2CommitMove since sender is not player2", async () => {
+            for (const gameId of gameIds) {
+                await truffleAssert.reverts(
+                    casino.player2CommitMove(gameId, ROCK, {alice: bob, value: price}),
+                    "Cannot commit, sender must be player2"
+                );
+            }
+        });
+
         it("should not player2CommitMove twice", async () => {
             for (const gameId of gameIds) {
                 const player2move = ROCK
@@ -225,7 +234,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
 
         beforeEach("create games", async () => {
             //createGame & player2CommitMove
-            await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(rockGameId, PAPER, {from: bob, value: price});
         });
 
@@ -290,7 +299,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = ROCK
             const player2Move = ROCK
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -303,7 +312,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = PAPER
             const winner = bob
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -316,7 +325,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = SCISSORS
             const winner = alice
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -333,7 +342,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = PAPER
             const player2Move = PAPER
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -346,7 +355,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = SCISSORS
             const winner = bob
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -359,7 +368,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = ROCK
             const winner = alice
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -376,7 +385,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player1Move = SCISSORS
             const player2Move = SCISSORS
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -389,7 +398,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = ROCK
             const winner = bob
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -402,7 +411,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             const player2Move = PAPER
             const winner = alice
             gameId = await casino.buildSecretMoveHashAsGameId(alice, player1Move, secret)
-            await casino.player1CreateGame(gameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(gameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(gameId, player2Move, {from: bob, value: price});
             //reward winner
             const rewardWinnerReceipt = await casino.player1RevealMoveAndReward(player1Move, secret, {from: alice});
@@ -414,7 +423,7 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
     describe("Withdraw", () => {
 
         beforeEach("createGame & player2 commit move", async () => {
-            await casino.player1CreateGame(rockGameId, revealPeriod, {from: alice, value: price});
+            await casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price});
             await casino.player2CommitMove(rockGameId, PAPER, {from: bob, value: price});
         });
 

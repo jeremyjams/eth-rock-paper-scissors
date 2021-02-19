@@ -198,9 +198,13 @@ contract Casino is Pausable {
     }
 
     /**
-     * Note: A player1 cannot initiate a free game.
+     * Pricing: A player1 cannot initiate a free game.
+     *
+     * Front-running: To protect player2 from a front-running attack while
+     * calling the player2CommitMove(..) method, player1 must specify player2 at
+     * game creation.
      */
-    function player1CreateGame(bytes32 player1SecretMoveHash, uint32 movePeriod) public payable whenNotPaused returns (bool)  {
+    function player1CreateGame(bytes32 player1SecretMoveHash, uint32 movePeriod, address player2) public payable whenNotPaused returns (bool)  {
         require(player1SecretMoveHash != bytes32(0), "Provided player1SecretMoveHash cannot be empty");
         require(movePeriod > 0, "Provided movePeriod cannot be empty");
         // player1SecretMoveHash is gameId
@@ -211,6 +215,7 @@ contract Casino is Pausable {
         gameIds.add(player1SecretMoveHash);
         game.price = msg.value;
         game.movePeriod = movePeriod;
+        game.player2 = player2;
         game.nextTimeout = now.add(movePeriod);
         emit CreateGameEvent(msg.sender, msg.value, player1SecretMoveHash, movePeriod);
         return true;
@@ -223,10 +228,10 @@ contract Casino is Pausable {
         require(movePeriod > 0, "Cannot commit on non-initialized game");
         uint price = game.price;
         require(price > 0, "Cannot commit on closed game");
+        require(game.player2 == msg.sender, "Cannot commit, sender must be player2");
         require(game.player2Move == Move.UNDEFINED, "Cannot commit move twice");
         require(msg.value == price, "Provided value should equal game price");
 
-        game.player2 = msg.sender;
         game.player2Move = player2Move;
         uint nextTimeout = now.add(movePeriod);
         game.nextTimeout = nextTimeout;
