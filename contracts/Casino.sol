@@ -68,10 +68,10 @@ contract Casino is Pausable {
         CLOSED
     }
 
-    enum Player1Score {
-        DRAW,
-        WIN,
-        LOSE
+    enum Score {
+        DRAW_GAME,
+        PLAYER1_WINS,
+        PLAYER2_WINS
     }
 
     event CreateGameEvent(
@@ -137,9 +137,10 @@ contract Casino is Pausable {
      * [...]                        = -1
      * [...]                        = 2
      *
+     * Note: Moves cannot be undefined when used from this contract
      */
-    function getPlayer1Score(Move player1Move, Move player2Move) private pure returns (Player1Score)  {
-        return Player1Score((uint(player1Move) - uint(player2Move) + 3) % 3);
+    function getScore(Move player1Move, Move player2Move) public pure returns (Score)  {
+        return Score((uint(player1Move) - uint(player2Move) + 3) % 3);
     }
 
     /**
@@ -250,20 +251,15 @@ contract Casino is Pausable {
         Move player2Move = game.player2Move;
         require(player2Move != Move.UNDEFINED, "Cannot reveal-reward without player2 move");
 
-        Player1Score score = getPlayer1Score(player1Move, player2Move);
-        if(score == Player1Score.DRAW){
+        Score score = getScore(player1Move, player2Move);
+        if(score == Score.DRAW_GAME){
             uint price = game.price;
             increaseBalance(msg.sender, price);
             increaseBalance(game.player2, price);
             emit RewardBothOnDrawEvent(msg.sender, price, gameId, player1Move);
         } else { //Game has a winner
             uint reward = game.price.mul(2);
-            address winner;
-            if (score == Player1Score.WIN) {
-                winner = msg.sender;
-            } else {
-                winner = game.player2;
-            }
+            address winner = score == Score.PLAYER1_WINS? msg.sender : game.player2;
             increaseBalance(winner, reward);
             emit RewardWinnerEvent(winner, reward, gameId, player1Move);
         }

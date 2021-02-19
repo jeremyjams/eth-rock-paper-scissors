@@ -44,6 +44,33 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
         });
     });
 
+    describe("Get game score", () => {
+        it("should get game score", async () => {
+            const Score = Object.freeze({"DRAW_GAME":toBN(0), "PLAYER1_WINS":toBN(1), "PLAYER2_WINS":toBN(2)})
+            //ROCK
+            const scoreRR  = await casino.getScore(ROCK, ROCK);
+            assert.strictEqual(scoreRR.toString(10), Score.DRAW_GAME.toString(10), "Game should be DRAW_GAME");
+            const scoreRP  = await casino.getScore(ROCK, PAPER);
+            assert.strictEqual(scoreRP.toString(10), Score.PLAYER2_WINS.toString(10), "Game should be PLAYER2_WINS");
+            const scoreRS  = await casino.getScore(ROCK, SCISSORS);
+            assert.strictEqual(scoreRS.toString(10), Score.PLAYER1_WINS.toString(10), "Game should be PLAYER1_WINS");
+            //PAPER
+            const scorePP  = await casino.getScore(PAPER, PAPER);
+            assert.strictEqual(scorePP.toString(10), Score.DRAW_GAME.toString(10), "Game should be DRAW_GAME");
+            const scorePR  = await casino.getScore(PAPER, ROCK);
+            assert.strictEqual(scorePR.toString(10), Score.PLAYER1_WINS.toString(10), "Game should be PLAYER1_WINS");
+            const scorePS  = await casino.getScore(PAPER, SCISSORS);
+            assert.strictEqual(scorePS.toString(10), Score.PLAYER2_WINS.toString(10), "Game should be PLAYER2_WINS");
+            //SCISSORS
+            const scoreSS  = await casino.getScore(SCISSORS, SCISSORS);
+            assert.strictEqual(scoreSS.toString(10), Score.DRAW_GAME.toString(10), "Game should be DRAW_GAME");
+            const scoreSR  = await casino.getScore(SCISSORS, ROCK);
+            assert.strictEqual(scoreSR.toString(10), Score.PLAYER2_WINS.toString(10), "Game should be PLAYER2_WINS");
+            const scoreSP  = await casino.getScore(SCISSORS, PAPER);
+            assert.strictEqual(scoreSP.toString(10), Score.PLAYER1_WINS.toString(10), "Game should be PLAYER1_WINS");
+        });
+    });
+
     describe("Build secret move hash", () => {
         it("should build secret move hash", async () => {
             //ROCK
