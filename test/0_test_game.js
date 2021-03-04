@@ -1,5 +1,6 @@
 const Casino = artifacts.require("./Casino.sol");
 const truffleAssert = require('truffle-assertions');
+const timeMachine = require('ganache-time-traveler');
 
 const { BN, toBN, soliditySha3 } = web3.utils
 require('chai').use(require('chai-bn')(BN)).should();
@@ -149,6 +150,54 @@ contract("Casino for playing «rock-paper-scissors» game", accounts => {
             }
         });
 
+    });
+
+    describe("Player1 will cancel game", () => {
+
+        it("should cancelGame", async () => {
+            casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price})
+            // time travel to cancelable date
+            const cancelableFromThisPeriod = revealPeriod.toNumber() + 1;
+            await timeMachine.advanceTimeAndBlock(cancelableFromThisPeriod);
+            const rockCancelGameReceipt = await casino.cancelGame(ROCK, secret, {from: alice});
+            truffleAssert.eventEmitted(rockCancelGameReceipt, 'CanceledGameEvent', { player: alice, amount: price, gameId: rockGameId });
+            const rockGameStateAfter  = await casino.getGameState(rockGameId);
+            assert.strictEqual(rockGameStateAfter.toString(10), State.CLOSED.toString(10), "Game should be CLOSED with ROCK");
+            //check refund in balance
+            const aliceBalance = await casino.balances(alice);
+            assert.strictEqual(aliceBalance.toString(10), price.toString(10), "Alice balance should have been refunded");
+            const bobBalance = await casino.balances(bob);
+            assert.strictEqual(bobBalance.toString(10), "0", "Bob balance should be empty");
+        });
+
+        it("should not cancelGame since game not initialized", async () => {
+            for (const player1move of moves) {
+                await truffleAssert.reverts(
+                    casino.cancelGame(player1move, secret, {from: alice}),
+                    "Cannot cancel non-initialized game"
+                );
+            }
+        });
+
+        it("should not cancelGame since player2 already played", async () => {
+            casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price})
+            await casino.player2CommitMove(rockGameId, ROCK, {from: bob, value: price});
+            await truffleAssert.reverts(
+                casino.cancelGame(ROCK, secret, {from: alice}),
+                "Cannot cancel game since player2 already played"
+            );
+        });
+
+        it("should not cancelGame since before cancel timeout", async () => {
+            casino.player1CreateGame(rockGameId, revealPeriod, bob, {from: alice, value: price})
+            // time travel before cancelable date
+            const unCancelableUntilThisPeriod = revealPeriod.toNumber();
+            await timeMachine.advanceTimeAndBlock(unCancelableUntilThisPeriod);
+            await truffleAssert.reverts(
+                casino.cancelGame(ROCK, secret, {from: alice}),
+                "Cannot cancel game before next timeout"
+            );
+        });
     });
 
     describe("Player2 will commit move after player1", () => {

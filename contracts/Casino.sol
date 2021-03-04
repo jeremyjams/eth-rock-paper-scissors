@@ -274,8 +274,8 @@ contract Casino is Pausable {
         require(now > game.nextTimeout, "Cannot runaway-reward before next timeout");
 
         uint reward = game.price.mul(2);
-        free(gameId);
         address player2 = game.player2;
+        free(gameId);
         increaseBalance(player2, reward);
         emit RewardPlayer2SincePlayer1RunawayEvent(player2, reward, gameId);
         return true;
